@@ -397,7 +397,7 @@ export function StorePanel({ businessId, section }: { businessId: string; sectio
     }));
   };
 
-  const triggerPrint = (inv: Invoice) => {
+  const buildReceiptHtml = (inv: Invoice) => {
     const shop = business;
     const rows = (inv.items || []).map((it) => {
       const pname = it.productName || (it as any).product?.name || "Item";
@@ -416,7 +416,7 @@ export function StorePanel({ businessId, section }: { businessId: string; sectio
     const discount = Number(inv.discountPkr || 0);
     const paid = Number(inv.downPaymentPkr || 0);
     const due = Number(inv.duePkr || 0);
-    const html = `<!doctype html><html><head><meta charset="utf-8"/><title>${escapePrint(inv.invoiceNumber)}</title>
+    return `<!doctype html><html><head><meta charset="utf-8"/><title>${escapePrint(inv.invoiceNumber)}</title>
       <style>
         @page { size: 80mm auto; margin: 3mm; }
         body{font-family:Arial,sans-serif;margin:0;padding:0;color:#111;background:#fff}
@@ -447,13 +447,25 @@ export function StorePanel({ businessId, section }: { businessId: string; sectio
           <div class="row bold"><span>Due</span><span>${due > 0 ? formatCurrency(due) : "Paid in full"}</span></div>
         </div>
       </div></body></html>`;
-    const w = window.open("", "_blank");
+  };
+
+  const printReceiptWindow = (inv: Invoice, preOpened?: Window | null) => {
+    const html = buildReceiptHtml(inv);
+    const w = preOpened && !preOpened.closed ? preOpened : window.open("", "_blank");
     if (!w) { flash("err", "Please allow popups to print the receipt."); return; }
-    w.document.open();
-    w.document.write(html);
-    w.document.close();
-    w.focus();
-    setTimeout(() => { try { w.print(); } catch {} }, 350);
+    try {
+      w.document.open();
+      w.document.write(html);
+      w.document.close();
+      w.focus();
+      setTimeout(() => { try { w.print(); } catch {} }, 350);
+    } catch {
+      flash("err", "Could not open print window.");
+    }
+  };
+
+  const triggerPrint = (inv: Invoice) => {
+    printReceiptWindow(inv);
   };
 
   function escapePrint(s: string) {
@@ -504,6 +516,9 @@ export function StorePanel({ businessId, section }: { businessId: string; sectio
       flash("err", "Customer phone number is required (with country code 92).");
       return;
     }
+    // Open print window synchronously in click handler so popup blockers allow auto-print after checkout.
+    const autoPrintWin = window.open("", "_blank");
+    if (!autoPrintWin) flash("err", "Please allow popups to auto-print the receipt (you can print from the last sale).");
     setCheckingOut(true);
 
     // Group serialized lines by product -> serialItemIds; keep bulk lines as quantity
@@ -552,7 +567,7 @@ export function StorePanel({ businessId, section }: { businessId: string; sectio
       setDownPaymentInput("");
       setRxNote("");
       flash("ok", data.duplicate ? `Sale already recorded: ${inv.invoiceNumber}` : `Sale complete: ${inv.invoiceNumber}`);
-      triggerPrint(inv);
+      printReceiptWindow(inv, autoPrintWin);
       void loadAll({ silent: true });
     } catch (e) {
       networkFailure = e instanceof TypeError || (e instanceof Error && /fetch|network|load failed/i.test(e.message));
@@ -606,8 +621,9 @@ export function StorePanel({ businessId, section }: { businessId: string; sectio
         setDownPaymentInput("");
         setRxNote("");
         flash("ok", `Saved offline (${queue.length} pending). It will sync automatically when online.`);
-        triggerPrint(localInvoice);
+        printReceiptWindow(localInvoice, autoPrintWin);
       } else {
+        try { if (autoPrintWin && !autoPrintWin.closed) autoPrintWin.close(); } catch {}
         flash("err", e instanceof Error ? e.message : "Checkout failed");
       }
     } finally {
