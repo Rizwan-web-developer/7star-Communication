@@ -208,6 +208,7 @@ export function StorePanel({ businessId, section }: { businessId: string; sectio
   const [invSearch, setInvSearch] = useState("");
   const [invBrand, setInvBrand] = useState("");
   const [invCategory, setInvCategory] = useState("");
+  const [invSupplier, setInvSupplier] = useState("");
   const [checkingOut, setCheckingOut] = useState(false);
   const [lastInvoice, setLastInvoice] = useState<Invoice | null>(null);
   const [printInvoice, setPrintInvoice] = useState<Invoice | null>(null);
@@ -276,15 +277,17 @@ export function StorePanel({ businessId, section }: { businessId: string; sectio
 
   const inventoryBrandOptions = useMemo(() => Array.from(new Set(products.map((p) => (p.brand || "").trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b)), [products]);
   const inventoryCategoryOptions = useMemo(() => Array.from(new Set(products.map((p) => (p.category || "").trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b)), [products]);
+  const inventorySupplierOptions = useMemo(() => Array.from(new Set(products.map((p) => (p.supplierName || "").trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b)), [products]);
   const inventoryFilteredProducts = useMemo(() => {
     const t = invSearch.trim().toLowerCase();
     return products.filter((p) => {
       if (invBrand && (p.brand || "").trim() !== invBrand) return false;
       if (invCategory && (p.category || "").trim() !== invCategory) return false;
+      if (invSupplier && (p.supplierName || "").trim() !== invSupplier) return false;
       if (!t) return true;
       return [p.name, p.sku, p.barcode, p.category, p.brand, p.supplierName].some((v) => (v || "").toLowerCase().includes(t)) || (p.serialItems || []).some((s) => s.serialOrImei.toLowerCase().includes(t));
     });
-  }, [products, invSearch, invBrand, invCategory]);
+  }, [products, invSearch, invBrand, invCategory, invSupplier]);
 
   const cartTotal = cart.reduce((s, l) => s + l.product.sellingPrice * l.quantity, 0);
   const cartDiscount = features.discounts ? Math.min(Math.max(0, Number(discountInput) || 0), cartTotal) : 0;
@@ -932,6 +935,10 @@ export function StorePanel({ businessId, section }: { businessId: string; sectio
                     <select value={invCategory} onChange={(e) => setInvCategory(e.target.value)} className="focus-ring h-9 w-full rounded-lg border border-line bg-surface-2 px-3 text-sm text-foreground sm:w-44">
                       <option value="">All categories</option>
                       {inventoryCategoryOptions.map((c) => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                    <select value={invSupplier} onChange={(e) => setInvSupplier(e.target.value)} className="focus-ring h-9 w-full rounded-lg border border-line bg-surface-2 px-3 text-sm text-foreground sm:w-44">
+                      <option value="">All suppliers</option>
+                      {inventorySupplierOptions.map((s) => <option key={s} value={s}>{s}</option>)}
                     </select>
                   </div>
                 </div>
