@@ -581,7 +581,7 @@ export function StorePanel({ businessId, section }: { businessId: string; sectio
       setDownPaymentInput("");
       setRxNote("");
       flash("ok", data.duplicate ? `Sale already recorded: ${inv.invoiceNumber}` : `Sale complete: ${inv.invoiceNumber}`);
-      printReceiptWindow(inv, autoPrintWin);
+      printReceiptWindow(inv);
       if (!data.duplicate) {
         applyLocalSaleToState(soldCart);
         setInvoices((prev) => [inv, ...prev.filter((x) => x.id !== inv.id)]);
@@ -1401,3 +1401,4 @@ export function StorePanel({ businessId, section }: { businessId: string; sectio
     </div>
   );
 }
+
