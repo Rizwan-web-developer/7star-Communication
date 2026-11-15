@@ -204,6 +204,10 @@ export function StorePanel({ businessId, section }: { businessId: string; sectio
   const [downPaymentInput, setDownPaymentInput] = useState("");
   const [rxNote, setRxNote] = useState("");
   const [barcodeInput, setBarcodeInput] = useState("");
+  // Inventory filters
+  const [invSearch, setInvSearch] = useState("");
+  const [invBrand, setInvBrand] = useState("");
+  const [invCategory, setInvCategory] = useState("");
   const [checkingOut, setCheckingOut] = useState(false);
   const [lastInvoice, setLastInvoice] = useState<Invoice | null>(null);
   const [printInvoice, setPrintInvoice] = useState<Invoice | null>(null);
