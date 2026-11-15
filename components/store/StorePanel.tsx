@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -614,7 +614,7 @@ export function StorePanel({ businessId, section }: { businessId: string; sectio
   };
 
   if (loading) {
-    return <div className="flex min-h-dvh items-center justify-center text-sm text-muted"><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Loading store panel…</div>;
+    return <div className="flex min-h-dvh items-center justify-center text-sm text-muted"><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Loading store panelâ€¦</div>;
   }
   if (error) {
     return (
@@ -689,11 +689,15 @@ export function StorePanel({ businessId, section }: { businessId: string; sectio
               </div>
               {products.length === 0 ? (
                 <p className="mt-6 text-sm text-muted">No products yet. Add stock in <button type="button" onClick={() => setTab("inventory")} className="font-medium text-accent underline">Inventory / Stock</button>.</p>
+              ) : q.trim().length === 0 ? (
+                <p className="mt-6 text-sm text-muted">Search by name, category, brand, or serial/IMEI to find products.</p>
+              ) : filteredProducts.length === 0 ? (
+                <p className="mt-6 text-sm text-muted">No matching products for &quot;{q.trim()}&quot;.</p>
               ) : (
-                <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
-                  {filteredProducts.map((p) => {
-                    const serialized = serialEnabled && p.trackingType === "SERIAL_OR_IMEI";
-                    const isService = Boolean(p.serviceItem);
+                <p className="mt-6 text-sm text-muted">Search by name, category, brand, or serial/IMEI to find products.</p>
+              ) : filteredProducts.length === 0 ? (
+                <p className="mt-6 text-sm text-muted">No matching products for &quot;{q.trim()}&quot;.</p>
+              ) : (
                     const available = serialized ? (p.serialItems || []).filter((s) => !s.isSold).length : isService ? Number.MAX_SAFE_INTEGER : p.stockQuantity;
                     const expired = features.batchExpiry && p.expiryDate ? new Date(p.expiryDate).getTime() < Date.now() : false;
                     return (
@@ -703,10 +707,10 @@ export function StorePanel({ businessId, section }: { businessId: string; sectio
                           <div className="min-w-0">
                             <p className="truncate text-sm font-semibold text-foreground">{p.name}</p>
                             <p className="mt-0.5 truncate text-xs text-muted">
-                              {[p.brand, p.category].filter(Boolean).join(" · ") || "—"} · {isService ? <span className="text-accent">Service</span> : serialized ? <span className="text-accent">Serial/IMEI ({available})</span> : <>Stock {p.stockQuantity}{p.unitLabel ? ` ${p.unitLabel}` : ""}</>}
+                              {[p.brand, p.category].filter(Boolean).join(" Â· ") || "â€”"} Â· {isService ? <span className="text-accent">Service</span> : serialized ? <span className="text-accent">Serial/IMEI ({available})</span> : <>Stock {p.stockQuantity}{p.unitLabel ? ` ${p.unitLabel}` : ""}</>}
                             </p>
-                            {features.paintShade && p.shadeCode ? <p className="mt-0.5 text-[11px] text-muted">Shade {p.shadeCode}{p.packSize ? ` · ${p.packSize}` : ""}</p> : null}
-                            {expired ? <p className="mt-0.5 text-[11px] font-medium text-rose-600 dark:text-rose-400">Expired — cannot sell</p> : null}
+                            {features.paintShade && p.shadeCode ? <p className="mt-0.5 text-[11px] text-muted">Shade {p.shadeCode}{p.packSize ? ` Â· ${p.packSize}` : ""}</p> : null}
+                            {expired ? <p className="mt-0.5 text-[11px] font-medium text-rose-600 dark:text-rose-400">Expired â€” cannot sell</p> : null}
                           </div>
                         </div>
                         <p className="mt-2 text-sm font-semibold tabular-nums text-accent">{formatCurrency(p.sellingPrice)}{p.unitLabel ? <span className="text-[11px] font-normal text-muted"> / {p.unitLabel}</span> : null}</p>
@@ -742,7 +746,7 @@ export function StorePanel({ businessId, section }: { businessId: string; sectio
                             ) : (
                               <p className="text-xs tabular-nums text-muted">{formatCurrency(l.product.sellingPrice)} each{l.product.unitLabel ? ` / ${l.product.unitLabel}` : ""}</p>
                             )}
-                            {features.batchExpiry && l.product.batchNumber ? <p className="mt-0.5 text-[11px] text-muted">Batch {l.product.batchNumber}{l.product.expiryDate ? ` · exp ${new Date(l.product.expiryDate).toLocaleDateString("en-PK")}` : ""}</p> : null}
+                            {features.batchExpiry && l.product.batchNumber ? <p className="mt-0.5 text-[11px] text-muted">Batch {l.product.batchNumber}{l.product.expiryDate ? ` Â· exp ${new Date(l.product.expiryDate).toLocaleDateString("en-PK")}` : ""}</p> : null}
                             {features.paintShade && l.product.shadeCode ? <p className="mt-0.5 text-[11px] text-muted">Shade {l.product.shadeCode}</p> : null}
                           </div>
                           <button type="button" onClick={() => setCartQty(lineKey, 0)} className="rounded p-1 text-muted hover:text-rose-500" aria-label="Remove"><Trash2 className="h-4 w-4" /></button>
@@ -818,8 +822,8 @@ export function StorePanel({ businessId, section }: { businessId: string; sectio
                   <div className="flex items-start justify-between gap-2">
                     <div>
                       <p className="font-semibold text-foreground">Last sale: {lastInvoice.invoiceNumber}</p>
-                      <p className="text-muted">{formatCurrency(lastInvoice.totalAmount)} — stock deducted</p>
-                      <p className={cn("text-xs font-medium", (lastInvoice.duePkr ?? 0) > 0 ? "text-amber-700 dark:text-amber-300" : "text-emerald-700 dark:text-emerald-300")}>Paid {formatCurrency(lastInvoice.downPaymentPkr || 0)} · Due {formatCurrency(lastInvoice.duePkr || 0)}</p>
+                      <p className="text-muted">{formatCurrency(lastInvoice.totalAmount)} â€” stock deducted</p>
+                      <p className={cn("text-xs font-medium", (lastInvoice.duePkr ?? 0) > 0 ? "text-amber-700 dark:text-amber-300" : "text-emerald-700 dark:text-emerald-300")}>Paid {formatCurrency(lastInvoice.downPaymentPkr || 0)} Â· Due {formatCurrency(lastInvoice.duePkr || 0)}</p>
                     </div>
                     <div className="flex shrink-0 flex-wrap gap-1.5">
                       <button type="button" onClick={() => triggerPrint(lastInvoice)} className="focus-ring inline-flex items-center gap-1.5 rounded-lg border border-line bg-surface px-2.5 py-1.5 text-xs font-semibold text-foreground hover:border-accent/40">
@@ -836,7 +840,7 @@ export function StorePanel({ businessId, section }: { businessId: string; sectio
                       const bname = it.brandName || it.product?.brand || "";
                       return (
                         <li key={it.id}>
-                          {bname ? `${bname} — ` : ""}{pname} ×{it.quantity} · {formatCurrency(it.lineTotal)}
+                          {bname ? `${bname} â€” ` : ""}{pname} Ã—{it.quantity} Â· {formatCurrency(it.lineTotal)}
                           {it.serialOrImei ? <span className="ml-1 font-mono text-accent">[S/N: {it.serialOrImei}]</span> : null}
                         </li>
                       );
@@ -873,7 +877,7 @@ export function StorePanel({ businessId, section }: { businessId: string; sectio
                   <ul className="mt-2 grid gap-1 text-xs text-amber-900/90 dark:text-amber-200/90 sm:grid-cols-2">
                     {soon.slice(0, 8).map((p) => {
                       const expired = new Date(p.expiryDate as string).getTime() < now;
-                      return <li key={p.id}>{p.name} — <b>{expired ? "EXPIRED" : "expiring"}</b> {new Date(p.expiryDate as string).toLocaleDateString("en-PK")}{p.batchNumber ? ` (batch ${p.batchNumber})` : ""}</li>;
+                      return <li key={p.id}>{p.name} â€” <b>{expired ? "EXPIRED" : "expiring"}</b> {new Date(p.expiryDate as string).toLocaleDateString("en-PK")}{p.batchNumber ? ` (batch ${p.batchNumber})` : ""}</li>;
                     })}
                   </ul>
                 </section>
@@ -909,7 +913,7 @@ export function StorePanel({ businessId, section }: { businessId: string; sectio
                                   {!serialized && soldOut ? <span className="ml-2 rounded bg-amber-500/10 px-1.5 py-0.5 text-[11px] font-medium text-amber-700 dark:text-amber-300">Out of stock</span> : null}
                                   {inactive ? <span className="ml-2 rounded bg-surface-2 px-1.5 py-0.5 text-[11px] font-medium text-muted">Off</span> : null}
                                 </p>
-                                <p className="text-xs text-muted">{[p.brand, p.category].filter(Boolean).join(" · ") || p.sku || "—"}</p>
+                                <p className="text-xs text-muted">{[p.brand, p.category].filter(Boolean).join(" Â· ") || p.sku || "â€”"}</p>
                                 <div className="mt-1 flex flex-wrap items-center gap-1">
                                   {p.serviceItem ? <span className="rounded bg-accent-soft px-1.5 py-0.5 text-[10px] font-semibold text-accent">SERVICE</span> : null}
                                   {p.supplierName ? <span className="rounded bg-surface-2 px-1.5 py-0.5 text-[10px] text-muted">Supplier: {p.supplierName}</span> : null}
@@ -919,7 +923,7 @@ export function StorePanel({ businessId, section }: { businessId: string; sectio
                                       Exp {new Date(p.expiryDate).toLocaleDateString("en-PK")}
                                     </span>
                                   ) : null}
-                                  {features.paintShade && p.shadeCode ? <span className="rounded bg-surface-2 px-1.5 py-0.5 text-[10px] text-muted">Shade {p.shadeCode}{p.packSize ? ` · ${p.packSize}` : ""}</span> : null}
+                                  {features.paintShade && p.shadeCode ? <span className="rounded bg-surface-2 px-1.5 py-0.5 text-[10px] text-muted">Shade {p.shadeCode}{p.packSize ? ` Â· ${p.packSize}` : ""}</span> : null}
                                   {features.multiUnit && p.unitLabel ? <span className="rounded bg-surface-2 px-1.5 py-0.5 text-[10px] text-muted">per {p.unitLabel}</span> : null}
                                   {features.prescription && p.prescriptionRequired ? <span className="rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:text-amber-300">Rx</span> : null}
                                   {features.installments && p.installmentAvailable ? <span className="rounded bg-surface-2 px-1.5 py-0.5 text-[10px] text-muted">Installments</span> : null}
@@ -944,7 +948,7 @@ export function StorePanel({ businessId, section }: { businessId: string; sectio
                             />
                           </td>
                           <td className={cn("px-3 py-3 text-right font-semibold tabular-nums", p.serviceItem ? "text-muted" : soldOut ? "text-rose-600 dark:text-rose-400" : p.stockQuantity <= p.minStockAlert ? "text-amber-700 dark:text-amber-300" : "text-foreground")}>
-                            {p.serviceItem ? "—" : serialized && soldOut ? "Sold out" : p.stockQuantity}
+                            {p.serviceItem ? "â€”" : serialized && soldOut ? "Sold out" : p.stockQuantity}
                             {p.serviceItem ? <span className="block text-[11px] font-normal text-muted">no stock</span> : serialized && !soldOut ? <span className="block text-[11px] font-normal text-muted">available</span> : p.unitLabel ? <span className="block text-[11px] font-normal text-muted">{p.unitLabel}</span> : null}
                           </td>
                           <td className="px-4 py-3">
@@ -960,7 +964,7 @@ export function StorePanel({ businessId, section }: { businessId: string; sectio
                                     ))}
                                   </ul>
                                 ) : (
-                                  <p className="mt-1 text-muted">—</p>
+                                  <p className="mt-1 text-muted">â€”</p>
                                 )}
                                 <div className="mt-2 flex justify-end">
                                   <button type="button" onClick={() => setConfirmDelete(p)} className="focus-ring rounded-md border border-line bg-surface-2 px-2 py-1 text-[11px] font-medium text-muted hover:border-rose-400/40 hover:text-rose-600">Delete</button>
@@ -1003,12 +1007,12 @@ export function StorePanel({ businessId, section }: { businessId: string; sectio
                   ) : invoices.map((inv) => (
                     <tr key={inv.id} className="border-b border-line last:border-b-0">
                       <td className="px-4 py-3"><p className="font-mono text-xs font-medium text-foreground">{inv.invoiceNumber}</p><p className="text-xs text-muted">{new Date(inv.createdAt).toLocaleString("en-PK")}</p></td>
-                      <td className="px-3 py-3 text-foreground">{inv.customerName || "—"}</td>
+                      <td className="px-3 py-3 text-foreground">{inv.customerName || "â€”"}</td>
                       <td className="px-3 py-3 text-muted">{inv.paymentMethod}</td>
                       <td className="px-3 py-3 text-muted">{inv.items.map((it) => `${it.product?.name || "Item"} x${it.quantity}${it.serialOrImei ? ` [${it.serialOrImei}]` : ""}`).join(", ")}</td>
                       <td className="px-4 py-3 text-right font-semibold tabular-nums text-foreground">
                         {formatCurrency(inv.totalAmount)}
-                        <span className={cn("block text-[11px] font-medium", (inv.duePkr ?? 0) > 0 ? "text-amber-700 dark:text-amber-300" : "text-emerald-700 dark:text-emerald-300")}>Paid {formatCurrency(inv.downPaymentPkr || 0)} · Due {formatCurrency(inv.duePkr || 0)}</span>
+                        <span className={cn("block text-[11px] font-medium", (inv.duePkr ?? 0) > 0 ? "text-amber-700 dark:text-amber-300" : "text-emerald-700 dark:text-emerald-300")}>Paid {formatCurrency(inv.downPaymentPkr || 0)} Â· Due {formatCurrency(inv.duePkr || 0)}</span>
                         {(inv.discountPkr ?? 0) > 0 ? <span className="block text-[11px] font-normal text-emerald-700 dark:text-emerald-300">Disc {formatCurrency(inv.discountPkr || 0)}</span> : null}
                       </td>
                       <td className="px-4 py-3">
@@ -1131,7 +1135,7 @@ export function StorePanel({ businessId, section }: { businessId: string; sectio
 
             <div className="rounded-xl border border-accent-line bg-accent-soft p-4">
               <p className="text-sm font-semibold text-foreground">Store management</p>
-              <p className="mt-1 text-sm text-muted">Use <b>Inventory / Stock</b> to add products, update prices, and adjust/deduct stock (bulk quantity or Serial/IMEI). Use <b>POS / Sell</b> to select products and checkout — serial-tracked items require selecting/scanning the specific Serial/IMEI; stock is deducted automatically on sale.</p>
+              <p className="mt-1 text-sm text-muted">Use <b>Inventory / Stock</b> to add products, update prices, and adjust/deduct stock (bulk quantity or Serial/IMEI). Use <b>POS / Sell</b> to select products and checkout â€” serial-tracked items require selecting/scanning the specific Serial/IMEI; stock is deducted automatically on sale.</p>
             </div>
           </div>
         ) : null}
@@ -1157,7 +1161,7 @@ export function StorePanel({ businessId, section }: { businessId: string; sectio
             <div className="flex items-start justify-between gap-3 border-b border-line px-4 py-3">
               <div className="min-w-0">
                 <p className="text-sm font-semibold text-foreground">Select Serial / IMEI</p>
-                <p className="truncate text-xs text-muted">{serialPick.name} · {formatCurrency(serialPick.sellingPrice)}</p>
+                <p className="truncate text-xs text-muted">{serialPick.name} Â· {formatCurrency(serialPick.sellingPrice)}</p>
               </div>
               <button type="button" onClick={() => setSerialPick(null)} className="focus-ring rounded-lg p-1.5 text-muted hover:bg-surface-2" aria-label="Close"><X className="h-4 w-4" /></button>
             </div>
@@ -1210,7 +1214,7 @@ export function StorePanel({ businessId, section }: { businessId: string; sectio
         onClose={() => (deleteBusy ? undefined : setConfirmDelete(null))}
         onConfirm={() => (confirmDelete ? void doDeleteProduct(confirmDelete) : undefined)}
         title="Delete product?"
-        description={confirmDelete ? <span>“{confirmDelete.name}” will be deleted. Products that are out of stock or have sales history can also be deleted (history stays safe for records).</span> : null}
+        description={confirmDelete ? <span>â€œ{confirmDelete.name}â€ will be deleted. Products that are out of stock or have sales history can also be deleted (history stays safe for records).</span> : null}
         confirmLabel="Delete"
         tone="danger"
         loading={deleteBusy}
@@ -1257,7 +1261,7 @@ export function StorePanel({ businessId, section }: { businessId: string; sectio
               ) : null}
               <div style={{ fontSize: 15, fontWeight: 700 }}>{business?.businessName || "Shop"}</div>
               {business?.location ? <div style={{ fontSize: 10 }}>{business.location}</div> : null}
-              {business?.ownerName || (business as any)?.phone ? <div style={{ fontSize: 10 }}>{[business?.ownerName, (business as any)?.phone].filter(Boolean).join(" · ")}</div> : null}
+              {business?.ownerName || (business as any)?.phone ? <div style={{ fontSize: 10 }}>{[business?.ownerName, (business as any)?.phone].filter(Boolean).join(" Â· ")}</div> : null}
             </div>
             <div style={{ fontSize: 11, marginBottom: 6 }}>
               <div><b>Invoice:</b> {printInvoice.invoiceNumber}</div>
@@ -1289,8 +1293,8 @@ export function StorePanel({ businessId, section }: { businessId: string; sectio
                             <div style={{ fontWeight: 600 }}>{pname}</div>
                             {it.serialOrImei ? <div style={{ fontSize: 9 }}>S/N / IMEI: {it.serialOrImei}</div> : null}
                             {it.shadeCode ? <div style={{ fontSize: 9 }}>Shade: {it.shadeCode}</div> : null}
-                            {it.batchNumber ? <div style={{ fontSize: 9 }}>Batch: {it.batchNumber}{it.expiryDate ? ` · Exp ${new Date(it.expiryDate).toLocaleDateString("en-PK")}` : ""}</div> : null}
-                            {it.unitLabel && it.unitLabel !== "piece" ? <div style={{ fontSize: 9 }}>{it.quantity} × {it.unitLabel}</div> : null}
+                            {it.batchNumber ? <div style={{ fontSize: 9 }}>Batch: {it.batchNumber}{it.expiryDate ? ` Â· Exp ${new Date(it.expiryDate).toLocaleDateString("en-PK")}` : ""}</div> : null}
+                            {it.unitLabel && it.unitLabel !== "piece" ? <div style={{ fontSize: 9 }}>{it.quantity} Ã— {it.unitLabel}</div> : null}
                           </div>
                         </div>
                       </td>
