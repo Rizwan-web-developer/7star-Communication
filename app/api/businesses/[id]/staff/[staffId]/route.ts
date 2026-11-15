@@ -8,12 +8,12 @@ import { assertTenantWritable } from "@/lib/trial-guard";
 const STAFF_ROLES = new Set(["MANAGER", "CASHIER"]);
 
 function serializeStaff(user: any) {
-  return { id: user.id, name: user.name, email: user.email, role: user.role, isActive: user.isActive, lastLoginAt: user.lastLoginAt, createdAt: user.createdAt };
+  return { id: user.id, name: user.name, username: user.username ?? null, email: user.email, role: user.role, isActive: user.isActive, lastLoginAt: user.lastLoginAt, createdAt: user.createdAt };
 }
 
 async function guard(id: string, sessionRole: string, adminBypass = false) {
-  if (!isPlatformAdmin(sessionRole) && sessionRole !== "OWNER") {
-    return NextResponse.json({ message: "Only the shop owner can manage staff accounts." }, { status: 403 });
+  if (!isPlatformAdmin(sessionRole) && !["OWNER", "MANAGER"].includes(sessionRole)) {
+    return NextResponse.json({ message: "Only admin users can manage accounts." }, { status: 403 });
   }
   const blocked = await assertTenantWritable(id, { adminBypass });
   if (blocked) return blocked;
@@ -36,9 +36,19 @@ export async function PATCH(req: Request, { params }: { params: { id: string; st
     const body = await req.json().catch(() => ({}));
     const data: Record<string, unknown> = {};
     if (typeof body?.name === "string" && body.name.trim().length >= 2) data.name = body.name.trim().slice(0, 100);
+    if (typeof body?.username === "string") {
+      const raw = body.username.trim();
+      if (raw && !/^[a-zA-Z0-9._-]{3,50}$/.test(raw)) return NextResponse.json({ message: "Username must be 3-50 chars (letters, numbers, dot, underscore, dash)." }, { status: 400 });
+      if (raw) {
+        const conflict = await prisma.user.findFirst({ where: { username: raw, NOT: { id: params.staffId } }, select: { id: true } });
+        if (conflict) return NextResponse.json({ message: "Username already in use." }, { status: 409 });
+      }
+      data.username = raw || null;
+    }
     if (typeof body?.role === "string") {
-      const role = String(body.role).toUpperCase();
-      if (!STAFF_ROLES.has(role)) return NextResponse.json({ message: "Invalid staff role." }, { status: 400 });
+      const roleRaw = String(body.role).toUpperCase();
+      const role = roleRaw === "ADMIN" ? "MANAGER" : roleRaw;
+      if (!STAFF_ROLES.has(role)) return NextResponse.json({ message: "Invalid role." }, { status: 400 });
       data.role = role;
     }
     if (typeof body?.isActive === "boolean") data.isActive = body.isActive;
@@ -52,7 +62,7 @@ export async function PATCH(req: Request, { params }: { params: { id: string; st
     const user = await prisma.user.update({
       where: { id: params.staffId },
       data: data as any,
-      select: { id: true, name: true, email: true, role: true, isActive: true, lastLoginAt: true, createdAt: true },
+      select: { id: true, name: true, username: true, email: true, role: true, isActive: true, lastLoginAt: true, createdAt: true },
     });
     return NextResponse.json({ staff: serializeStaff(user) });
   } catch (error) {

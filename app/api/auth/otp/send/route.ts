@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { normalizeEmail, validatePassword, verifyPassword } from "@/lib/auth/server";
+import { normalizeEmail, normalizeIdentifier, validatePassword, verifyPassword } from "@/lib/auth/server";
 import { issueOtp } from "@/lib/otp";
 import { toIndustryType, toPlanTier } from "@/lib/mappers";
 import { recommendedFeatures } from "@/lib/features";
@@ -29,33 +29,36 @@ export async function POST(req: Request) {
   try {
     const body = await req.json().catch(() => ({}));
     const purpose = String(body?.purpose ?? "").toUpperCase();
-    const email = normalizeEmail(String(body?.email ?? ""));
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      return NextResponse.json({ message: "Enter a valid email address." }, { status: 400 });
-    }
+    const rawIdentifier = normalizeIdentifier(String(body?.identifier ?? body?.email ?? body?.username ?? ""));
+    const email = normalizeEmail(String(body?.email ?? rawIdentifier));
 
     if (purpose === "LOGIN") {
+      const identifier = normalizeIdentifier(String(body?.identifier ?? body?.email ?? body?.username ?? ""));
       const password = String(body?.password ?? "");
-      if (!password) return NextResponse.json({ message: "Password is required." }, { status: 400 });
-      const user = await prisma.user.findUnique({
-        where: { email },
+      if (!identifier || !password) return NextResponse.json({ message: "Email/username and password are required." }, { status: 400 });
+      const identEmail = normalizeEmail(identifier);
+      const user = await prisma.user.findFirst({
+        where: { OR: [{ email: identEmail }, { username: identifier }, { username: identifier.toLowerCase() }] },
         select: {
           id: true, name: true, email: true, passwordHash: true, role: true, tenantId: true, isActive: true,
-          tenant: { select: { id: true, accountType: true, trialEndsAt: true, subscriptionPaidUntil: true, status: true } },
+          tenant: { select: { id: true, status: true } },
         },
       });
       if (!user || !user.isActive || !verifyPassword(password, user.passwordHash)) {
-        return NextResponse.json({ message: "Invalid email or password." }, { status: 401 });
+        return NextResponse.json({ message: "Invalid credentials." }, { status: 401 });
       }
       // One-time panel: do not block login on trial/subscription expiry.
       if (user.tenant && (user.tenant as any).status === "DEACTIVE") {
         return NextResponse.json({ message: "This account is locked. Please contact support." }, { status: 403 });
       }
-      await issueOtp(email, "LOGIN", undefined, origin);
-      return NextResponse.json({ ok: true, step: "otp", purpose: "LOGIN", email, message: "Verification code sent to your email." });
+      await issueOtp(user.email, "LOGIN", undefined, origin);
+      return NextResponse.json({ ok: true, step: "otp", purpose: "LOGIN", email: user.email, message: "Verification code sent to your email." });
     }
 
     if (purpose === "SIGNUP") {
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        return NextResponse.json({ message: "Enter a valid email address." }, { status: 400 });
+      }
       const name = String(body?.name ?? "").trim();
       const ownerName = String(body?.ownerName ?? "").trim() || name;
       const phone = String(body?.phone ?? "").trim();

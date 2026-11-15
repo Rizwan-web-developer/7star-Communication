@@ -257,6 +257,35 @@ export function StorePanel({ businessId, section }: { businessId: string; sectio
   useEffect(() => { void loadAll(); }, [loadAll]);
   useEffect(() => { if (section) setTab(section); }, [section]);
 
+  useEffect(() => {
+    if (tab !== "pos") return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      const tag = target?.tagName;
+      const inEditable = tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || (target as any)?.isContentEditable;
+      if (!["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.key)) return;
+      if (inEditable && (e.key === "ArrowLeft" || e.key === "ArrowRight")) return;
+      const cards = Array.from(document.querySelectorAll<HTMLElement>('[data-pos-card="1"]')).filter((el) => !el.hasAttribute("disabled"));
+      if (cards.length === 0) return;
+      const active = document.activeElement as HTMLElement | null;
+      let idx = active ? cards.indexOf(active) : -1;
+      if (idx === -1 && inEditable) {
+        if (e.key === "ArrowDown" || e.key === "ArrowRight") { e.preventDefault(); cards[0]?.focus(); }
+        return;
+      }
+      if (idx === -1) return;
+      e.preventDefault();
+      const cols = window.innerWidth >= 1280 ? 3 : window.innerWidth >= 640 ? 2 : 1;
+      if (e.key === "ArrowRight") idx = Math.min(cards.length - 1, idx + 1);
+      if (e.key === "ArrowLeft") idx = Math.max(0, idx - 1);
+      if (e.key === "ArrowDown") idx = Math.min(cards.length - 1, idx + cols);
+      if (e.key === "ArrowUp") idx = Math.max(0, idx - cols);
+      cards[idx]?.focus();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [tab, filteredProducts.length]);
+
   const filteredProducts = useMemo(() => {
     const t = q.trim().toLowerCase();
     const active = products.filter((p) => p.isActive !== false);
@@ -636,7 +665,7 @@ export function StorePanel({ businessId, section }: { businessId: string; sectio
                   ) : null}
                   <div className="relative w-full max-w-xs">
                     <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
-                    <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search name, category, brand, serial/IMEI…" className="focus-ring h-9 w-full rounded-lg border border-line bg-surface-2 pl-8 pr-3 text-sm text-foreground placeholder:text-muted" />
+                    <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search name, category, brand, serial/IMEI" className="focus-ring h-9 w-full rounded-lg border border-line bg-surface-2 pl-8 pr-3 text-sm text-foreground placeholder:text-muted" />
                   </div>
                 </div>
               </div>
@@ -650,7 +679,7 @@ export function StorePanel({ businessId, section }: { businessId: string; sectio
                     const available = serialized ? (p.serialItems || []).filter((s) => !s.isSold).length : isService ? Number.MAX_SAFE_INTEGER : p.stockQuantity;
                     const expired = features.batchExpiry && p.expiryDate ? new Date(p.expiryDate).getTime() < Date.now() : false;
                     return (
-                      <button key={p.id} type="button" onClick={() => addToCart(p)} disabled={available <= 0 || expired} className="focus-ring rounded-lg border border-line bg-surface-2 p-3 text-left transition-colors hover:border-accent/40 disabled:cursor-not-allowed disabled:opacity-50">
+                      <button key={p.id} data-pos-card="1" type="button" onClick={() => addToCart(p)} disabled={available <= 0 || expired} className="focus-ring rounded-lg border border-line bg-surface-2 p-3 text-left transition-colors hover:border-accent/40 disabled:cursor-not-allowed disabled:opacity-50">
                         <div className="flex items-start gap-2.5">
                           {p.imageUrl ? <img src={p.imageUrl} alt="" className="h-10 w-10 shrink-0 rounded-md border border-line object-cover" /> : null}
                           <div className="min-w-0">

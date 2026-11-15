@@ -49,8 +49,8 @@ export async function POST(req: Request) {
       const user = await prisma.user.findUnique({
         where: { email },
         select: {
-          id: true, name: true, email: true, role: true, tenantId: true, isActive: true,
-          tenant: { select: { id: true, accountType: true, trialEndsAt: true, subscriptionPaidUntil: true, status: true } },
+          id: true, name: true, username: true, email: true, role: true, tenantId: true, isActive: true,
+          tenant: { select: { id: true, status: true } },
         },
       });
       if (!user || !user.isActive) return NextResponse.json({ message: "Account not found or inactive." }, { status: 401 });
@@ -64,9 +64,10 @@ export async function POST(req: Request) {
         email: user.email,
         name: user.name,
       });
+      const isPosOnly = user.role === "CASHIER";
       const isAdmin = user.role === "SUPER_ADMIN" || user.role === "SUB_ADMIN";
-      const redirectTo = isAdmin ? "/dashboard" : user.tenantId ? `/store/${user.tenantId}` : "/login";
-      const res = NextResponse.json({ message: "Login successful", role: user.role, name: user.name, tenantId: user.tenantId, redirectTo }, { status: 200 });
+      const redirectTo = isAdmin ? "/dashboard" : user.tenantId ? `/store/${user.tenantId}${isPosOnly ? "/pos" : ""}` : "/login";
+      const res = NextResponse.json({ message: "Login successful", role: user.role, name: user.name, username: user.username, tenantId: user.tenantId, redirectTo }, { status: 200 });
       res.cookies.set({ ...sessionCookieOptions(), value: token });
       return res;
     }

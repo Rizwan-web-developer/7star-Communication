@@ -26,54 +26,73 @@ const ALL_FEATURE_KEYS = [
   "DISCOUNTS",
 ];
 
+async function ensureRizwanAdmin(tenantId) {
+  const email = "rk3113798@gmail.com";
+  const username = "rizwanpos";
+  const password = "ChangeMe123!";
+  const passwordHash = hashPassword(password);
+  const byEmail = await prisma.user.findUnique({ where: { email } });
+  if (byEmail) {
+    await prisma.user.update({
+      where: { email },
+      data: { username, tenantId, role: "MANAGER", isActive: true, passwordHash, name: byEmail.name || "Rizwan" },
+    });
+  } else {
+    await prisma.user.create({
+      data: { tenantId, name: "Rizwan", username, email, passwordHash, role: "MANAGER", isActive: true },
+    });
+  }
+  console.log("Admin user ready:", email, "username:", username, "password:", password);
+}
+
 async function main() {
-  const email = "owner@7communication.com";
+  const ownerEmail = "owner@7communication.com";
   const password = "ChangeMe123!";
 
-  const existing = await prisma.tenant.findFirst({ where: { businessName: "7 Communication" } });
-  if (existing) {
-    console.log("Seed skipped: 7 Communication shop already exists.");
-    return;
-  }
-
-  const tenant = await prisma.tenant.create({
-    data: {
-      uid: "SHOP-7COMM",
-      businessName: "7 Communication",
-      slug: "7communication",
-      industryType: "MOBILE_ACCESSORIES",
-      subscriptionTier: "PRO",
-      accountType: "REAL",
-      billingMode: "LOCAL_MANUAL",
-      status: "ACTIVE",
-      isActive: true,
-      ownerName: "7 Communication Owner",
-      email,
-      phone: "",
-      country: "Pakistan",
-      location: "Pakistan",
-      mrr: 0,
-      users: {
-        create: {
-          name: "Owner",
-          email,
-          passwordHash: hashPassword(password),
-          role: "OWNER",
-          isActive: true,
+  let tenant = await prisma.tenant.findFirst({ where: { businessName: "7 Communication" }, select: { id: true } });
+  if (!tenant) {
+    tenant = await prisma.tenant.create({
+      data: {
+        uid: "SHOP-7COMM",
+        businessName: "7 Communication",
+        slug: "7communication",
+        industryType: "MOBILE_ACCESSORIES",
+        subscriptionTier: "PRO",
+        accountType: "REAL",
+        billingMode: "LOCAL_MANUAL",
+        status: "ACTIVE",
+        isActive: true,
+        ownerName: "7 Communication Owner",
+        email: ownerEmail,
+        phone: "",
+        country: "Pakistan",
+        location: "Pakistan",
+        mrr: 0,
+        users: {
+          create: {
+            name: "Owner",
+            email: ownerEmail,
+            passwordHash: hashPassword(password),
+            role: "OWNER",
+            isActive: true,
+          },
         },
       },
-    },
-    select: { id: true },
-  });
+      select: { id: true },
+    });
+    console.log("Seeded 7 Communication mobile accessories shop.");
+  } else {
+    console.log("7 Communication shop exists; ensuring required users/features.");
+  }
 
   await prisma.tenantFeature.createMany({
     data: ALL_FEATURE_KEYS.map((key) => ({ tenantId: tenant.id, key })),
     skipDuplicates: true,
   });
+  await ensureRizwanAdmin(tenant.id);
 
-  console.log("Seeded 7 Communication mobile accessories shop.");
-  console.log("Login email:", email);
-  console.log("Login password:", password);
+  console.log("Owner login email:", ownerEmail);
+  console.log("Owner login password:", password);
 }
 
 main()

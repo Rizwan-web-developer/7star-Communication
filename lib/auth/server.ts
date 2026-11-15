@@ -43,6 +43,10 @@ export function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
 }
 
+export function normalizeIdentifier(value: string): string {
+  return value.trim();
+}
+
 export function validatePassword(password: string): string | null {
   if (password.length < 10) return "Password must be at least 10 characters.";
   if (!/[A-Z]/.test(password) || !/[a-z]/.test(password) || !/[0-9]/.test(password))

@@ -2,11 +2,11 @@
 
 import { useRouter } from "next/navigation";
 import { useState, type FormEvent } from "react";
-import { Loader2, Lock, Mail, Store } from "lucide-react";
+import { Loader2, Lock, Store, User } from "lucide-react";
 
 export function LoginForm() {
   const router = useRouter();
-  const [email, setEmail] = useState("");
+  const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -19,7 +19,7 @@ export function LoginForm() {
       const res = await fetch("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ identifier, password }),
       });
       const data = (await res.json().catch(() => ({}))) as { message?: string; redirectTo?: string };
       if (!res.ok) throw new Error(data.message || "Login failed.");
@@ -51,10 +51,10 @@ export function LoginForm() {
 
         <form onSubmit={submit} className="space-y-4">
           <div>
-            <label htmlFor="email" className="mb-1.5 block text-sm font-medium text-foreground">Email</label>
+            <label htmlFor="identifier" className="mb-1.5 block text-sm font-medium text-foreground">Email or username</label>
             <div className="relative">
-              <Mail className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" aria-hidden />
-              <input id="email" type="email" autoComplete="email" required value={email} onChange={(e) => setEmail(e.target.value)} className="focus-ring h-10 w-full rounded-lg border border-line bg-surface-2 pl-9 pr-3 text-sm text-foreground placeholder:text-muted" placeholder="owner@example.com" />
+              <User className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" aria-hidden />
+              <input id="identifier" type="text" autoComplete="username" required value={identifier} onChange={(e) => setIdentifier(e.target.value)} className="focus-ring h-10 w-full rounded-lg border border-line bg-surface-2 pl-9 pr-3 text-sm text-foreground placeholder:text-muted" placeholder="Email or username" />
             </div>
           </div>
           <div>

@@ -5,15 +5,15 @@ import { hashPassword, isPlatformAdmin, normalizeEmail, requireTenantAccess, val
 import { tenantHasFeature } from "@/lib/tenant-features";
 import { assertTenantWritable } from "@/lib/trial-guard";
 
-const STAFF_ROLES = new Set(["MANAGER", "CASHIER"]);
+const STAFF_ROLES = new Set(["MANAGER", "CASHIER", "OWNER"]);
 
 function serializeStaff(user: any) {
-  return { id: user.id, name: user.name, email: user.email, role: user.role, isActive: user.isActive, lastLoginAt: user.lastLoginAt, createdAt: user.createdAt };
+  return { id: user.id, name: user.name, username: user.username ?? null, email: user.email, role: user.role, isActive: user.isActive, lastLoginAt: user.lastLoginAt, createdAt: user.createdAt };
 }
 
 async function guard(id: string, sessionRole: string, adminBypass = false) {
-  if (!isPlatformAdmin(sessionRole) && sessionRole !== "OWNER") {
-    return NextResponse.json({ message: "Only the shop owner can manage staff accounts." }, { status: 403 });
+  if (!isPlatformAdmin(sessionRole) && !["OWNER", "MANAGER"].includes(sessionRole)) {
+    return NextResponse.json({ message: "Only admin users can manage accounts." }, { status: 403 });
   }
   const blocked = await assertTenantWritable(id, { adminBypass });
   if (blocked) return blocked;
@@ -32,7 +32,7 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
   const staff = await prisma.user.findMany({
     where: { tenantId: params.id },
     orderBy: { createdAt: "asc" },
-    select: { id: true, name: true, email: true, role: true, isActive: true, lastLoginAt: true, createdAt: true },
+    select: { id: true, name: true, username: true, email: true, role: true, isActive: true, lastLoginAt: true, createdAt: true },
   });
   return NextResponse.json({ staff: staff.map(serializeStaff) });
 }
@@ -47,21 +47,25 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     const body = await req.json().catch(() => ({}));
     const name = String(body?.name ?? "").trim().slice(0, 100);
     const email = normalizeEmail(String(body?.email ?? ""));
+    const rawUsername = String(body?.username ?? "").trim();
+    const username = rawUsername ? rawUsername.slice(0, 50) : null;
     const password = String(body?.password ?? "");
     const roleRaw = String(body?.role ?? "CASHIER").toUpperCase();
-    const role = STAFF_ROLES.has(roleRaw) ? roleRaw : "CASHIER";
+    const mappedRole = roleRaw === "ADMIN" ? "MANAGER" : roleRaw;
+    const role = STAFF_ROLES.has(mappedRole) && mappedRole !== "OWNER" ? mappedRole : "CASHIER";
 
-    if (name.length < 2) return NextResponse.json({ message: "Staff name is required." }, { status: 400 });
+    if (name.length < 2) return NextResponse.json({ message: "Name is required." }, { status: 400 });
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return NextResponse.json({ message: "A valid email is required." }, { status: 400 });
+    if (username && !/^[a-zA-Z0-9._-]{3,50}$/.test(username)) return NextResponse.json({ message: "Username must be 3-50 chars (letters, numbers, dot, underscore, dash)." }, { status: 400 });
     const pwError = validatePassword(password);
     if (pwError) return NextResponse.json({ message: pwError }, { status: 400 });
 
-    const conflict = await prisma.user.findUnique({ where: { email }, select: { id: true } });
-    if (conflict) return NextResponse.json({ message: "This email is already registered." }, { status: 409 });
+    const conflict = await prisma.user.findFirst({ where: { OR: [{ email }, ...(username ? [{ username }] : [])] }, select: { id: true } });
+    if (conflict) return NextResponse.json({ message: "This email or username is already registered." }, { status: 409 });
 
     const user = await prisma.user.create({
-      data: { tenantId: params.id, name, email, passwordHash: hashPassword(password), role: role as any, isActive: true },
-      select: { id: true, name: true, email: true, role: true, isActive: true, lastLoginAt: true, createdAt: true },
+      data: { tenantId: params.id, name, username, email, passwordHash: hashPassword(password), role: role as any, isActive: true },
+      select: { id: true, name: true, username: true, email: true, role: true, isActive: true, lastLoginAt: true, createdAt: true },
     });
     return NextResponse.json({ staff: serializeStaff(user) }, { status: 201 });
   } catch (error) {

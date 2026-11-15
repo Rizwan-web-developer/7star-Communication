@@ -325,6 +325,7 @@ model User {
   tenantId     String?
   tenant       Tenant?   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   name         String
+  username     String?   @unique
   email        String    @unique
   passwordHash String
   role         UserRole  @default(CASHIER)
@@ -336,6 +337,7 @@ model User {
 
   @@index([tenantId])
   @@index([role])
+  @@index([username])
 }
 
 enum TrackingType {

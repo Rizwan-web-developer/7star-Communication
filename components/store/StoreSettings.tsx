@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 
 type Shop = { id: string; uid?: string | null; businessName: string; email?: string | null; phone?: string | null; location?: string | null; logoDataUrl?: string | null };
-type StaffMember = { id: string; name: string; email: string; role: string; isActive: boolean; lastLoginAt?: string | null };
+type StaffMember = { id: string; name: string; username?: string | null; email: string; role: string; isActive: boolean; lastLoginAt?: string | null };
 
 export function StoreSettings({ businessId }: { businessId: string }) {
   const [shop, setShop] = useState<Shop | null>(null);
@@ -32,13 +32,14 @@ export function StoreSettings({ businessId }: { businessId: string }) {
   const [staffMsg, setStaffMsg] = useState<{ tone: "ok" | "err"; text: string } | null>(null);
   const [staffBusy, setStaffBusy] = useState(false);
   const [staffName, setStaffName] = useState("");
+  const [staffUsername, setStaffUsername] = useState("");
   const [staffEmail, setStaffEmail] = useState("");
   const [staffPassword, setStaffPassword] = useState("");
   const [staffRole, setStaffRole] = useState("CASHIER");
   const [staffDel, setStaffDel] = useState<StaffMember | null>(null);
 
   const multiUserEnabled = featureKeys.includes("MULTI_USER");
-  const canManageStaff = role === "OWNER" || role === "SUPER_ADMIN" || role === "SUB_ADMIN";
+  const canManageStaff = ["OWNER", "MANAGER", "SUPER_ADMIN", "SUB_ADMIN"].includes(role);
 
   const loadStaff = async () => {
     setStaffLoading(true);
@@ -78,15 +79,15 @@ export function StoreSettings({ businessId }: { businessId: string }) {
       const res = await fetch(`/api/businesses/${businessId}/staff`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: staffName, email: staffEmail, password: staffPassword, role: staffRole }),
+        body: JSON.stringify({ name: staffName, username: staffUsername, email: staffEmail, password: staffPassword, role: staffRole }),
       });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.message || "Failed to add staff.");
+      if (!res.ok) throw new Error(data.message || "Failed to add user.");
       setStaff((cur) => [...cur, data.staff as StaffMember]);
-      setStaffName(""); setStaffEmail(""); setStaffPassword(""); setStaffRole("CASHIER");
-      setStaffMsg({ tone: "ok", text: "Staff account created." });
+      setStaffName(""); setStaffUsername(""); setStaffEmail(""); setStaffPassword(""); setStaffRole("CASHIER");
+      setStaffMsg({ tone: "ok", text: "User account created." });
     } catch (err) {
-      setStaffMsg({ tone: "err", text: err instanceof Error ? err.message : "Failed to add staff." });
+      setStaffMsg({ tone: "err", text: err instanceof Error ? err.message : "Failed to add user." });
     } finally {
       setStaffBusy(false);
     }
@@ -103,9 +104,9 @@ export function StoreSettings({ businessId }: { businessId: string }) {
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.message || "Failed to update staff.");
       setStaff((cur) => cur.map((s) => (s.id === member.id ? (data.staff as StaffMember) : s)));
-      setStaffMsg({ tone: "ok", text: "Staff account updated." });
+      setStaffMsg({ tone: "ok", text: "User account updated." });
     } catch (err) {
-      setStaffMsg({ tone: "err", text: err instanceof Error ? err.message : "Failed to update staff." });
+      setStaffMsg({ tone: "err", text: err instanceof Error ? err.message : "Failed to update user." });
     }
   };
 
@@ -115,12 +116,12 @@ export function StoreSettings({ businessId }: { businessId: string }) {
     try {
       const res = await fetch(`/api/businesses/${businessId}/staff/${staffDel.id}`, { method: "DELETE" });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.message || "Failed to delete staff.");
+      if (!res.ok) throw new Error(data.message || "Failed to delete user.");
       setStaff((cur) => cur.filter((s) => s.id !== staffDel.id));
       setStaffDel(null);
-      setStaffMsg({ tone: "ok", text: "Staff account deleted." });
+      setStaffMsg({ tone: "ok", text: "User account deleted." });
     } catch (err) {
-      setStaffMsg({ tone: "err", text: err instanceof Error ? err.message : "Failed to delete staff." });
+      setStaffMsg({ tone: "err", text: err instanceof Error ? err.message : "Failed to delete user." });
     } finally {
       setStaffBusy(false);
     }
@@ -249,52 +250,61 @@ export function StoreSettings({ businessId }: { businessId: string }) {
 
       {multiUserEnabled && canManageStaff ? (
         <section className="rounded-xl border border-line bg-surface p-5">
-          <h2 className="flex items-center gap-2 text-base font-semibold text-foreground"><Users className="h-4 w-4 text-accent" /> Staff accounts</h2>
-          <p className="mt-0.5 text-sm text-muted">Add manager/cashier logins for your team. Staff sign in on /login and land directly in this shop.</p>
+          <h2 className="flex items-center gap-2 text-base font-semibold text-foreground"><Users className="h-4 w-4 text-accent" /> User accounts</h2>
+          <p className="mt-0.5 text-sm text-muted">Add users for your shop. POS-only users can only access POS/sales. Admin users get full access.</p>
 
           <form onSubmit={addStaff} className="mt-4 grid gap-3 sm:grid-cols-2">
             <label className="text-sm"><span className="mb-1 block font-medium text-foreground">Name</span>
               <input value={staffName} onChange={(e) => setStaffName(e.target.value)} required minLength={2} className="focus-ring h-10 w-full rounded-lg border border-line bg-surface-2 px-3 text-sm text-foreground" />
             </label>
+            <label className="text-sm"><span className="mb-1 block font-medium text-foreground">Username</span>
+              <input value={staffUsername} onChange={(e) => setStaffUsername(e.target.value)} placeholder="e.g. rizwanpos" className="focus-ring h-10 w-full rounded-lg border border-line bg-surface-2 px-3 text-sm text-foreground" />
+              <span className="mt-1 block text-[11px] text-muted">Optional. Can be used to sign in.</span>
+            </label>
             <label className="text-sm"><span className="mb-1 block font-medium text-foreground">Email</span>
               <input type="email" value={staffEmail} onChange={(e) => setStaffEmail(e.target.value)} required className="focus-ring h-10 w-full rounded-lg border border-line bg-surface-2 px-3 text-sm text-foreground" />
             </label>
-            <label className="text-sm"><span className="mb-1 block font-medium text-foreground">Temporary password</span>
+            <label className="text-sm"><span className="mb-1 block font-medium text-foreground">Password</span>
               <input type="password" value={staffPassword} onChange={(e) => setStaffPassword(e.target.value)} required minLength={10} autoComplete="new-password" className="focus-ring h-10 w-full rounded-lg border border-line bg-surface-2 px-3 text-sm text-foreground" />
               <span className="mt-1 block text-[11px] text-muted">Min 10 chars with upper/lowercase + number.</span>
             </label>
-            <label className="text-sm"><span className="mb-1 block font-medium text-foreground">Role</span>
+            <label className="text-sm sm:col-span-2"><span className="mb-1 block font-medium text-foreground">Access</span>
               <select value={staffRole} onChange={(e) => setStaffRole(e.target.value)} className="focus-ring h-10 w-full rounded-lg border border-line bg-surface-2 px-3 text-sm text-foreground">
-                <option value="CASHIER">Cashier</option>
-                <option value="MANAGER">Manager</option>
+                <option value="CASHIER">POS only (can sell products only)</option>
+                <option value="MANAGER">Admin (full access)</option>
               </select>
             </label>
             {staffMsg ? <div className={cn("rounded-lg border px-3 py-2 text-sm sm:col-span-2", staffMsg.tone === "ok" ? "border-emerald-500/25 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300" : "border-rose-500/25 bg-rose-500/10 text-rose-700 dark:text-rose-300")}>{staffMsg.text}</div> : null}
             <div className="sm:col-span-2">
               <button type="submit" disabled={staffBusy} className="focus-ring inline-flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-accent-fg disabled:opacity-60">
-                {staffBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserPlus className="h-4 w-4" />} Add staff account
+                {staffBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserPlus className="h-4 w-4" />} Add user
               </button>
             </div>
           </form>
 
           <div className="mt-5 overflow-hidden rounded-lg border border-line">
             {staffLoading ? (
-              <div className="flex items-center gap-2 px-4 py-6 text-sm text-muted"><Loader2 className="h-4 w-4 animate-spin" /> Loading staff…</div>
+              <div className="flex items-center gap-2 px-4 py-6 text-sm text-muted"><Loader2 className="h-4 w-4 animate-spin" /> Loading users…</div>
             ) : staff.length === 0 ? (
-              <p className="px-4 py-6 text-center text-sm text-muted">No staff accounts yet.</p>
+              <p className="px-4 py-6 text-center text-sm text-muted">No user accounts yet.</p>
             ) : (
               <ul className="divide-y divide-line">
                 {staff.map((member) => (
                   <li key={member.id} className="flex flex-wrap items-center gap-2 px-4 py-3">
                     <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium text-foreground">{member.name}{member.role === "OWNER" ? <span className="ml-1.5 rounded bg-accent-soft px-1.5 py-0.5 text-[10px] font-semibold text-accent">OWNER</span> : null}</p>
-                      <p className="truncate text-xs text-muted">{member.email}</p>
+                      <p className="truncate text-sm font-medium text-foreground">
+                        {member.name}
+                        {member.role === "OWNER" ? <span className="ml-1.5 rounded bg-accent-soft px-1.5 py-0.5 text-[10px] font-semibold text-accent">OWNER</span> : null}
+                        {member.role === "MANAGER" ? <span className="ml-1.5 rounded bg-accent-soft px-1.5 py-0.5 text-[10px] font-semibold text-accent">ADMIN</span> : null}
+                        {member.role === "CASHIER" ? <span className="ml-1.5 rounded bg-surface-2 px-1.5 py-0.5 text-[10px] font-semibold text-muted">POS ONLY</span> : null}
+                      </p>
+                      <p className="truncate text-xs text-muted">{member.username ? `${member.username} • ` : ""}{member.email}</p>
                     </div>
                     {member.role !== "OWNER" ? (
                       <>
                         <select value={member.role} onChange={(e) => void patchStaff(member, { role: e.target.value })} className="focus-ring h-8 rounded-md border border-line bg-surface-2 px-2 text-xs text-foreground" aria-label={`Role for ${member.name}`}>
-                          <option value="CASHIER">Cashier</option>
-                          <option value="MANAGER">Manager</option>
+                          <option value="CASHIER">POS only</option>
+                          <option value="MANAGER">Admin (full)</option>
                         </select>
                         <button type="button" onClick={() => void patchStaff(member, { isActive: !member.isActive })} className={cn("focus-ring rounded-md border px-2 py-1 text-xs font-medium", member.isActive ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300" : "border-line bg-surface-2 text-muted")}>{member.isActive ? "Active" : "Disabled"}</button>
                         <button type="button" onClick={() => setStaffDel(member)} className="focus-ring rounded-md border border-line bg-surface-2 p-1.5 text-muted hover:border-rose-400/40 hover:text-rose-600" aria-label={`Delete ${member.name}`}><Trash2 className="h-3.5 w-3.5" /></button>
@@ -310,8 +320,8 @@ export function StoreSettings({ businessId }: { businessId: string }) {
         </section>
       ) : (
         <section className="rounded-xl border border-line bg-surface p-5">
-          <h2 className="flex items-center gap-2 text-base font-semibold text-foreground"><Users className="h-4 w-4 text-muted" /> Staff accounts</h2>
-          <p className="mt-1 text-sm text-muted">Staff accounts &amp; roles are not enabled for this business. Contact the platform admin to enable <b>Staff accounts</b> from Access.</p>
+          <h2 className="flex items-center gap-2 text-base font-semibold text-foreground"><Users className="h-4 w-4 text-muted" /> User accounts</h2>
+          <p className="mt-1 text-sm text-muted">User accounts are not enabled for this business. Contact the platform admin to enable <b>Staff accounts</b> from Access.</p>
         </section>
       )}
 
@@ -320,7 +330,7 @@ export function StoreSettings({ businessId }: { businessId: string }) {
         onClose={() => (staffBusy ? undefined : setStaffDel(null))}
         onConfirm={() => void deleteStaff()}
         title="Delete staff account?"
-        description={staffDel ? <span>The login for {staffDel.name} ({staffDel.email}) will be deleted.</span> : null}
+        description={staffDel ? <span>The login for {staffDel.name} ({staffDel.username || staffDel.email}) will be deleted.</span> : null}
         confirmLabel="Delete"
         tone="danger"
         loading={staffBusy}

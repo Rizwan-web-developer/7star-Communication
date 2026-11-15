@@ -61,6 +61,19 @@ export function ShopShell({ businessId, children }: { businessId: string; childr
   const [mobileOpen, setMobileOpen] = useState(false);
   const [shop, setShop] = useState<Shop | null>(null);
   const [featureKeys, setFeatureKeys] = useState<string[]>([]);
+  const [me, setMe] = useState<{ role?: string; name?: string } | null>(null);
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const res = await fetch("/api/auth/me", { cache: "no-store" });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok) setMe(data.user || null);
+      } catch { /* ignore */ }
+    })();
+  }, []);
+
+  const isPosOnly = me?.role === "CASHIER";
 
   const refreshShop = async () => {
     try {
@@ -98,11 +111,22 @@ export function ShopShell({ businessId, children }: { businessId: string; childr
 
   const nav = useMemo(
     () => NAV
+      .filter((n) => !isPosOnly || n.key === "pos")
       .filter((n) => !("feature" in n) || featureKeys.includes((n as any).feature))
       .map((n) => ({ ...n, full: `${base}${n.href}` })),
-    [base, featureKeys],
+    [base, featureKeys, isPosOnly],
   );
   const active = (full: string) => (full === base ? pathname === base || pathname === `${base}/` : pathname.startsWith(full));
+
+  useEffect(() => {
+    if (!me) return;
+    if (isPosOnly) {
+      const allowed = `${base}/pos`;
+      if (!pathname.startsWith(allowed)) {
+        window.location.replace(allowed);
+      }
+    }
+  }, [me, isPosOnly, pathname, base]);
 
   const logout = async () => {
     await fetch("/api/auth/logout", { method: "POST" }).catch(() => {});

@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db";
 import {
   createSessionCookie,
   normalizeEmail,
+  normalizeIdentifier,
   sessionCookieOptions,
   verifyPassword,
   type SessionRole,
@@ -12,20 +13,27 @@ import {
 export async function POST(req: Request) {
   try {
     const body = await req.json().catch(() => ({}));
-    const email = normalizeEmail(String(body?.email ?? ""));
+    const identifier = normalizeIdentifier(String(body?.identifier ?? body?.email ?? body?.username ?? ""));
     const password = String(body?.password ?? "");
-    if (!email || !password) {
-      return NextResponse.json({ message: "Email and password are required." }, { status: 400 });
+    if (!identifier || !password) {
+      return NextResponse.json({ message: "Email/username and password are required." }, { status: 400 });
     }
 
-    const user = await prisma.user.findUnique({
-      where: { email },
+    const email = normalizeEmail(identifier);
+    const user = await prisma.user.findFirst({
+      where: {
+        OR: [
+          { email },
+          { username: identifier },
+          { username: identifier.toLowerCase() },
+        ],
+      },
       select: {
-        id: true, name: true, email: true, passwordHash: true, role: true, tenantId: true, isActive: true,
+        id: true, name: true, username: true, email: true, passwordHash: true, role: true, tenantId: true, isActive: true,
       },
     });
     if (!user || !user.isActive || !verifyPassword(password, user.passwordHash)) {
-      return NextResponse.json({ message: "Invalid email or password." }, { status: 401 });
+      return NextResponse.json({ message: "Invalid credentials." }, { status: 401 });
     }
 
     await prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } }).catch(() => {});
@@ -38,9 +46,10 @@ export async function POST(req: Request) {
       name: user.name,
     });
 
-    const redirectTo = user.tenantId ? `/store/${user.tenantId}` : "/login";
+    const isPosOnly = user.role === "CASHIER";
+    const redirectTo = user.tenantId ? `/store/${user.tenantId}${isPosOnly ? "/pos" : ""}` : "/login";
     const res = NextResponse.json(
-      { message: "Login successful", role: user.role, name: user.name, tenantId: user.tenantId, redirectTo },
+      { message: "Login successful", role: user.role, name: user.name, username: user.username, tenantId: user.tenantId, redirectTo },
       { status: 200 },
     );
     res.cookies.set({ ...sessionCookieOptions(), value: token });
