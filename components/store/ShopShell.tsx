@@ -142,9 +142,9 @@ export function ShopShell({ businessId, children }: { businessId: string; childr
           {!(collapsed && !onNavigate) ? (
             <div className="flex min-w-0 items-center gap-2.5">
               {shop?.logoDataUrl ? (
-                <img src={shop.logoDataUrl} alt="" className="h-12 w-12 shrink-0 rounded-xl object-cover" />
+                <img src={shop.logoDataUrl} alt="" className="h-12 w-12 shrink-0 object-contain" />
               ) : (
-                <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-accent-soft text-sm font-semibold text-accent">{initials(shopName).toUpperCase()}</span>
+                <span className="flex h-12 w-12 shrink-0 items-center justify-center text-sm font-semibold text-accent">{initials(shopName).toUpperCase()}</span>
               )}
               <div className="min-w-0">
                 <p className="truncate text-sm font-semibold tracking-tight text-foreground">{shopName}</p>
@@ -153,9 +153,9 @@ export function ShopShell({ businessId, children }: { businessId: string; childr
             </div>
           ) : (
             shop?.logoDataUrl ? (
-              <img src={shop.logoDataUrl} alt={shopName} className="h-12 w-12 rounded-lg object-cover" title={shopName} />
+              <img src={shop.logoDataUrl} alt={shopName} className="h-12 w-12 object-contain" title={shopName} />
             ) : (
-              <span className="flex h-12 w-12 items-center justify-center rounded-lg bg-accent-soft text-xs font-semibold text-accent" title={shopName}>{initials(shopName).toUpperCase()}</span>
+              <span className="flex h-12 w-12 items-center justify-center text-xs font-semibold text-accent" title={shopName}>{initials(shopName).toUpperCase()}</span>
             )
           )}
           {!onNavigate ? (
