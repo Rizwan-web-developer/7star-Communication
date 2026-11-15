@@ -211,7 +211,7 @@ export function StorePanel({ businessId, section }: { businessId: string; sectio
   const [invSupplier, setInvSupplier] = useState("");
   const [checkingOut, setCheckingOut] = useState(false);
   const [lastInvoice, setLastInvoice] = useState<Invoice | null>(null);
-  const [printInvoice, setPrintInvoice] = useState<Invoice | null>(null);
+  // POS invoice printing uses popup receipt window (see triggerPrint).
   // Serial/IMEI selection when a SERIAL_OR_IMEI product is added to cart
   const [serialPick, setSerialPick] = useState<Product | null>(null);
   const [serialQuery, setSerialQuery] = useState("");
@@ -234,8 +234,9 @@ export function StorePanel({ businessId, section }: { businessId: string; sectio
     return { msg };
   };
 
-  const loadAll = useCallback(async () => {
-    setLoading(true);
+  const loadAll = useCallback(async (opts?: { silent?: boolean }) => {
+    const silent = !!opts?.silent;
+    if (!silent) setLoading(true);
     setError("");
     try {
       const [bRes, pRes, iRes] = await Promise.all([
@@ -243,8 +244,8 @@ export function StorePanel({ businessId, section }: { businessId: string; sectio
         fetch(`/api/businesses/${businessId}/products`, { cache: "no-store" }),
         fetch(`/api/businesses/${businessId}/invoices`, { cache: "no-store" }),
       ]);
-      if (bRes.status === 404) { setError("Business not found in database. Create this business from the admin panel first."); setLoading(false); return; }
-      if (bRes.status === 401) { setError("Unauthorized. Please sign in as Super Admin."); setLoading(false); return; }
+      if (bRes.status === 404) { setError("Business not found in database. Create this business from the admin panel first."); if (!silent) setLoading(false); return; }
+      if (bRes.status === 401) { setError("Unauthorized. Please sign in as Super Admin."); if (!silent) setLoading(false); return; }
       const bData = await bRes.json().catch(() => ({}));
       const pData = await pRes.json().catch(() => ({}));
       const iData = await iRes.json().catch(() => ({}));
@@ -257,7 +258,7 @@ export function StorePanel({ businessId, section }: { businessId: string; sectio
     } catch {
       setError("Failed to load store data.");
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [businessId]);
 
@@ -397,12 +398,68 @@ export function StorePanel({ businessId, section }: { businessId: string; sectio
   };
 
   const triggerPrint = (inv: Invoice) => {
-    setPrintInvoice(inv);
-    // Let the print DOM render, then open the browser print dialog (prints receipt only via @media print).
-    setTimeout(() => {
-      window.print();
-    }, 200);
+    const shop = business;
+    const rows = (inv.items || []).map((it) => {
+      const pname = it.productName || (it as any).product?.name || "Item";
+      const bname = it.brandName || (it as any).product?.brand || "";
+      const serial = it.serialOrImei ? `<div style="font-size:10px;color:#444">S/N: ${escapePrint(serialOrEmpty(it.serialOrImei))}</div>` : "";
+      return `<tr>
+        <td style="padding:4px 0;border-bottom:1px dashed #ccc;vertical-align:top">
+          ${bname ? `<div style="font-size:9px;font-weight:700;text-transform:uppercase">${escapePrint(bname)}</div>` : ""}
+          <div style="font-weight:600">${escapePrint(pname)}</div>
+          ${serial}
+          <div style="font-size:10px;color:#444">${it.quantity} x ${formatCurrency(it.unitPrice)}</div>
+        </td>
+        <td style="padding:4px 0;border-bottom:1px dashed #ccc;text-align:right;vertical-align:top;font-weight:600">${formatCurrency(it.lineTotal)}</td>
+      </tr>`;
+    }).join("");
+    const discount = Number(inv.discountPkr || 0);
+    const paid = Number(inv.downPaymentPkr || 0);
+    const due = Number(inv.duePkr || 0);
+    const html = `<!doctype html><html><head><meta charset="utf-8"/><title>${escapePrint(inv.invoiceNumber)}</title>
+      <style>
+        @page { size: 80mm auto; margin: 3mm; }
+        body{font-family:Arial,sans-serif;margin:0;padding:0;color:#111;background:#fff}
+        .receipt{width:72mm;margin:0 auto;font-size:11px;line-height:1.35}
+        h1{margin:0 0 2px;font-size:14px;text-align:center}
+        .muted{color:#444;font-size:10px;text-align:center}
+        .meta{margin-top:6px;font-size:11px}
+        table{width:100%;border-collapse:collapse;margin-top:6px}
+        .totals{margin-top:8px;border-top:1px dashed #000;padding-top:4px}
+        .row{display:flex;justify-content:space-between;margin:2px 0}
+        .bold{font-weight:700}
+      </style></head><body>
+      <div class="receipt">
+        <h1>${escapePrint(shop?.businessName || "7 Communication")}</h1>
+        ${shop?.location ? `<div class="muted">${escapePrint(shop.location)}</div>` : ""}
+        <div class="meta">
+          <div><b>Invoice:</b> ${escapePrint(inv.invoiceNumber)}</div>
+          <div><b>Date:</b> ${new Date(inv.createdAt).toLocaleString("en-PK")}</div>
+          ${inv.customerName ? `<div><b>Customer:</b> ${escapePrint(inv.customerName)}</div>` : ""}
+          ${inv.customerPhone ? `<div><b>Phone:</b> ${escapePrint(inv.customerPhone)}</div>` : ""}
+          <div><b>Payment:</b> ${escapePrint(inv.paymentMethod || "CASH")}</div>
+        </div>
+        <table><tbody>${rows || `<tr><td colspan="2" style="padding:6px 0">No items</td></tr>`}</tbody></table>
+        <div class="totals">
+          ${discount > 0 ? `<div class="row"><span>Discount</span><span>- ${formatCurrency(discount)}</span></div>` : ""}
+          <div class="row bold"><span>Total</span><span>${formatCurrency(inv.totalAmount)}</span></div>
+          <div class="row"><span>Paid</span><span>${formatCurrency(paid)}</span></div>
+          <div class="row bold"><span>Due</span><span>${due > 0 ? formatCurrency(due) : "Paid in full"}</span></div>
+        </div>
+      </div></body></html>`;
+    const w = window.open("", "_blank");
+    if (!w) { flash("err", "Please allow popups to print the receipt."); return; }
+    w.document.open();
+    w.document.write(html);
+    w.document.close();
+    w.focus();
+    setTimeout(() => { try { w.print(); } catch {} }, 350);
   };
+
+  function escapePrint(s: string) {
+    return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c] as string));
+  }
+  function serialOrEmpty(s?: string | null) { return s || ""; }
 
   const sendReceiptWhatsApp = (inv: Invoice, fallbackPhone?: string | null) => {
     const phone = inv.customerPhone || fallbackPhone || "";
@@ -496,7 +553,7 @@ export function StorePanel({ businessId, section }: { businessId: string; sectio
       setRxNote("");
       flash("ok", data.duplicate ? `Sale already recorded: ${inv.invoiceNumber}` : `Sale complete: ${inv.invoiceNumber}`);
       triggerPrint(inv);
-      await loadAll();
+      void loadAll({ silent: true });
     } catch (e) {
       networkFailure = e instanceof TypeError || (e instanceof Error && /fetch|network|load failed/i.test(e.message));
       if (networkFailure && features.offlineSync) {
@@ -1307,88 +1364,6 @@ export function StorePanel({ businessId, section }: { businessId: string; sectio
         </div>
       ) : null}
 
-      {/* Print-only receipt (black & white). Shown only during printing. */}
-      {printInvoice ? (
-        <div id="invoice-print-area" aria-hidden className="hidden">
-          <div style={{ width: "72mm", maxWidth: "72mm", margin: "0 auto", padding: "2mm 1mm", fontFamily: "Arial, Helvetica, sans-serif", color: "#000", background: "#fff", fontSize: 11, lineHeight: 1.35 }}>
-            <div style={{ textAlign: "center", borderBottom: "1px dashed #000", paddingBottom: 8, marginBottom: 8 }}>
-              {business?.logoDataUrl ? (
-                <img src={business.logoDataUrl} alt="" style={{ height: 48, width: 48, objectFit: "contain", margin: "0 auto 4px", display: "block", filter: "grayscale(100%) contrast(1.15)" }} />
-              ) : null}
-              <div style={{ fontSize: 15, fontWeight: 700 }}>{business?.businessName || "Shop"}</div>
-              {business?.location ? <div style={{ fontSize: 10 }}>{business.location}</div> : null}
-              {business?.ownerName || (business as any)?.phone ? <div style={{ fontSize: 10 }}>{[business?.ownerName, (business as any)?.phone].filter(Boolean).join(" Â· ")}</div> : null}
-            </div>
-            <div style={{ fontSize: 11, marginBottom: 6 }}>
-              <div><b>Invoice:</b> {printInvoice.invoiceNumber}</div>
-              <div><b>Date:</b> {new Date(printInvoice.createdAt).toLocaleString("en-PK")}</div>
-              {printInvoice.customerName ? <div><b>Customer:</b> {printInvoice.customerName}</div> : null}
-              <div><b>Payment:</b> {printInvoice.paymentMethod}</div>
-            </div>
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
-              <thead>
-                <tr>
-                  <th style={{ textAlign: "left", borderBottom: "1px solid #000", padding: "3px 0" }}>Item</th>
-                  <th style={{ textAlign: "right", borderBottom: "1px solid #000", padding: "3px 0", whiteSpace: "nowrap" }}>Qty</th>
-                  <th style={{ textAlign: "right", borderBottom: "1px solid #000", padding: "3px 0", whiteSpace: "nowrap" }}>Price</th>
-                  <th style={{ textAlign: "right", borderBottom: "1px solid #000", padding: "3px 0", whiteSpace: "nowrap" }}>Total</th>
-                </tr>
-              </thead>
-              <tbody>
-                {printInvoice.items.map((it) => {
-                  const pname = it.productName || it.product?.name || "Item";
-                  const bname = it.brandName || it.product?.brand || "";
-                  const img = it.imageUrl || it.product?.imageUrl || null;
-                  return (
-                    <tr key={it.id}>
-                      <td style={{ padding: "4px 0", verticalAlign: "top", borderBottom: "1px dotted #888" }}>
-                        <div style={{ display: "flex", gap: 6, alignItems: "flex-start" }}>
-                          {img ? <img src={img} alt="" style={{ width: 28, height: 28, objectFit: "cover", border: "1px solid #000", flexShrink: 0, filter: "grayscale(100%) contrast(1.15)" }} /> : null}
-                          <div>
-                            {bname ? <div style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase" }}>{bname}</div> : null}
-                            <div style={{ fontWeight: 600 }}>{pname}</div>
-                            {it.serialOrImei ? <div style={{ fontSize: 9 }}>S/N / IMEI: {it.serialOrImei}</div> : null}
-                            {it.shadeCode ? <div style={{ fontSize: 9 }}>Shade: {it.shadeCode}</div> : null}
-                            {it.batchNumber ? <div style={{ fontSize: 9 }}>Batch: {it.batchNumber}{it.expiryDate ? ` Â· Exp ${new Date(it.expiryDate).toLocaleDateString("en-PK")}` : ""}</div> : null}
-                            {it.unitLabel && it.unitLabel !== "piece" ? <div style={{ fontSize: 9 }}>{it.quantity} Ã— {it.unitLabel}</div> : null}
-                          </div>
-                        </div>
-                      </td>
-                      <td style={{ padding: "4px 0", textAlign: "right", verticalAlign: "top", borderBottom: "1px dotted #888" }}>{it.quantity}</td>
-                      <td style={{ padding: "4px 0", textAlign: "right", verticalAlign: "top", borderBottom: "1px dotted #888", whiteSpace: "nowrap" }}>{formatCurrency(it.unitPrice, true)}</td>
-                      <td style={{ padding: "4px 0", textAlign: "right", verticalAlign: "top", borderBottom: "1px dotted #888", whiteSpace: "nowrap" }}>{formatCurrency(it.lineTotal, true)}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-            <div style={{ borderTop: "1px solid #000", marginTop: 6, paddingTop: 6, fontSize: 11 }}>
-              {(printInvoice.discountPkr ?? 0) > 0 ? (
-                <>
-                  <div style={{ display: "flex", justifyContent: "space-between" }}><span>Subtotal</span><span>{formatCurrency(printInvoice.subtotalPkr ?? printInvoice.totalAmount)}</span></div>
-                  <div style={{ display: "flex", justifyContent: "space-between" }}><span>Discount</span><span>- {formatCurrency(printInvoice.discountPkr || 0)}</span></div>
-                </>
-              ) : null}
-              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, fontWeight: 700, marginTop: 2 }}>
-                <span>Grand Total</span>
-                <span>{formatCurrency(printInvoice.totalAmount)}</span>
-              </div>
-              <div style={{ display: "flex", justifyContent: "space-between", marginTop: 2 }}><span>Paid</span><span>{formatCurrency(printInvoice.downPaymentPkr || 0)}</span></div>
-              <div style={{ display: "flex", justifyContent: "space-between", fontWeight: 700 }}><span>Due</span><span>{formatCurrency(printInvoice.duePkr || 0)}</span></div>
-              {printInvoice.prescriptionNote ? <div style={{ marginTop: 4, fontSize: 9 }}>Rx: {printInvoice.prescriptionNote}</div> : null}
-            </div>
-            <div style={{ textAlign: "center", marginTop: 10, fontSize: 10, borderTop: "1px dashed #000", paddingTop: 6 }}>Thank you for your purchase</div>
-          </div>
-        </div>
-      ) : null}
-      <style>{`@media print {
-  @page { size: 80mm auto; margin: 3mm; }
-  html, body { margin: 0 !important; padding: 0 !important; background: #fff !important; height: auto !important; }
-  body * { visibility: hidden !important; }
-  #invoice-print-area, #invoice-print-area * { visibility: visible !important; }
-  #invoice-print-area { display: block !important; position: absolute; left: 0; top: 0; width: 80mm; max-width: 80mm; margin: 0; padding: 0; background: #fff; }
-}`}</style>
     </div>
   );
 }
-
