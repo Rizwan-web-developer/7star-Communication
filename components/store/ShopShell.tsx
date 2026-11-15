@@ -16,6 +16,7 @@ import {
   ShoppingCart,
   Tag,
   Truck,
+  Users,
   Wrench,
   X,
 } from "lucide-react";
@@ -31,6 +32,7 @@ type Shop = {
 const NAV = [
   { key: "overview", label: "Overview", href: "", icon: LayoutDashboard },
   { key: "pos", label: "POS / Sell", href: "/pos", icon: ShoppingCart },
+  { key: "customers", label: "Customers", href: "/customers", icon: Users },
   { key: "inventory", label: "Inventory / Stock", href: "/inventory", icon: Boxes },
   { key: "service-jobs", label: "Service Jobs", href: "/service-jobs", icon: Wrench, feature: "SERVICE_JOBS" },
   { key: "suppliers", label: "Suppliers", href: "/suppliers", icon: Truck, feature: "SUPPLIER_LEDGER" },

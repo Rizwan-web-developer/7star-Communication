@@ -130,6 +130,7 @@ model Tenant {
   users            User[]
   products         Product[]
   invoices         Invoice[]
+  customers        Customer[]
   subscriptions    BusinessSubscription[]
   billingInvoices  BillingInvoice[]
   vouchers         SubscriptionVoucher[]
@@ -485,6 +486,8 @@ model Invoice {
   id            String     @id @default(cuid())
   tenantId      String
   tenant        Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customerId    String?
+  customer      Customer?  @relation(fields: [customerId], references: [id], onDelete: SetNull)
   invoiceNumber String
   customerName  String?
   customerPhone String?
@@ -503,6 +506,7 @@ model Invoice {
 
   @@unique([tenantId, clientRef])
   @@index([tenantId])
+  @@index([customerId])
   @@index([syncStatus])
   @@index([createdAt])
 }
@@ -552,6 +556,24 @@ model ServiceJob {
   @@index([tenantId])
   @@index([status])
   @@index([createdAt])
+}
+
+model Customer {
+  id        String   @id @default(cuid())
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name      String
+  phone     String?
+  address   String?
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  invoices  Invoice[]
+
+  @@index([tenantId])
+  @@index([name])
+  @@index([phone])
 }
 
 // SUPPLIER_LEDGER feature: suppliers + purchase/payment entries.

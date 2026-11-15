@@ -3,6 +3,7 @@
 import type { ReactNode } from "react";
 
 import { AppShell } from "@/components/layout/AppShell";
+import { DynamicFavicon } from "@/components/providers/DynamicFavicon";
 import { OverlayProvider } from "@/components/providers/OverlayProvider";
 import { TenantProvider } from "@/components/providers/TenantProvider";
 import { ThemeProvider } from "@/components/providers/ThemeProvider";
@@ -14,6 +15,7 @@ export function Providers({ children }: { children: ReactNode }) {
       <ToastProvider>
         <TenantProvider>
           <OverlayProvider>
+            <DynamicFavicon />
             <AppShell>{children}</AppShell>
           </OverlayProvider>
         </TenantProvider>

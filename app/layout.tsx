@@ -6,12 +6,12 @@ import { Providers } from "@/components/providers/Providers";
 
 export const metadata: Metadata = {
   title: {
-    default: "Omni Pos – Smart POS & Stock Management",
-    template: "%s – Omni Pos",
+    default: "7 Communication – Mobile Accessories Shop Panel",
+    template: "%s – 7 Communication",
   },
   description:
-    "Omni Pos is a point-of-sale and stock management SaaS for businesses worldwide. Sell faster, track inventory, print invoices, and manage your team from one secure platform.",
-  applicationName: "Omni Pos",
+    "7 Communication mobile accessories shop panel for POS, inventory, sales, customers, and shop management.",
+  applicationName: "7 Communication",
   icons: {
     icon: [{ url: "/favicon.png", type: "image/png", sizes: "256x256" }],
     shortcut: ["/favicon.png"],
