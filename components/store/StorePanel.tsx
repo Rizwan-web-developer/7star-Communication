@@ -270,6 +270,18 @@ export function StorePanel({ businessId, section }: { businessId: string; sectio
     });
   }, [products, q]);
 
+  const inventoryBrandOptions = useMemo(() => Array.from(new Set(products.map((p) => (p.brand || "").trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b)), [products]);
+  const inventoryCategoryOptions = useMemo(() => Array.from(new Set(products.map((p) => (p.category || "").trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b)), [products]);
+  const inventoryFilteredProducts = useMemo(() => {
+    const t = invSearch.trim().toLowerCase();
+    return products.filter((p) => {
+      if (invBrand && (p.brand || "").trim() !== invBrand) return false;
+      if (invCategory && (p.category || "").trim() !== invCategory) return false;
+      if (!t) return true;
+      return [p.name, p.sku, p.barcode, p.category, p.brand, p.supplierName].some((v) => (v || "").toLowerCase().includes(t)) || (p.serialItems || []).some((s) => s.serialOrImei.toLowerCase().includes(t));
+    });
+  }, [products, invSearch, invBrand, invCategory]);
+
   const cartTotal = cart.reduce((s, l) => s + l.product.sellingPrice * l.quantity, 0);
   const cartDiscount = features.discounts ? Math.min(Math.max(0, Number(discountInput) || 0), cartTotal) : 0;
   const cartGrand = Math.max(0, cartTotal - cartDiscount);
@@ -899,8 +911,26 @@ export function StorePanel({ businessId, section }: { businessId: string; sectio
 
             <section className="overflow-hidden rounded-xl border border-line bg-surface">
               <div className="border-b border-line px-4 py-3">
-                <h2 className="text-base font-semibold text-foreground">Products &amp; stock</h2>
-                <p className="text-sm text-muted">Bulk items use quantity. Serial/IMEI items are tracked per unit (add serials to increase stock).</p>
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <h2 className="text-base font-semibold text-foreground">Products &amp; stock</h2>
+                    <p className="text-sm text-muted">Bulk items use quantity. Serial/IMEI items are tracked per unit (add serials to increase stock).</p>
+                  </div>
+                  <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap sm:items-center">
+                    <div className="relative w-full sm:w-64">
+                      <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
+                      <input value={invSearch} onChange={(e) => setInvSearch(e.target.value)} placeholder="Search name..." className="focus-ring h-9 w-full rounded-lg border border-line bg-surface-2 pl-8 pr-3 text-sm text-foreground placeholder:text-muted" />
+                    </div>
+                    <select value={invBrand} onChange={(e) => setInvBrand(e.target.value)} className="focus-ring h-9 w-full rounded-lg border border-line bg-surface-2 px-3 text-sm text-foreground sm:w-44">
+                      <option value="">All brands</option>
+                      {inventoryBrandOptions.map((b) => <option key={b} value={b}>{b}</option>)}
+                    </select>
+                    <select value={invCategory} onChange={(e) => setInvCategory(e.target.value)} className="focus-ring h-9 w-full rounded-lg border border-line bg-surface-2 px-3 text-sm text-foreground sm:w-44">
+                      <option value="">All categories</option>
+                      {inventoryCategoryOptions.map((c) => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                  </div>
+                </div>
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full min-w-[980px] text-left text-sm">
@@ -910,7 +940,9 @@ export function StorePanel({ businessId, section }: { businessId: string; sectio
                   <tbody>
                     {products.length === 0 ? (
                       <tr><td colSpan={5} className="px-4 py-10 text-center text-sm text-muted">No products yet. Click &quot;Add product&quot; above.</td></tr>
-                    ) : products.map((p) => {
+                    ) : inventoryFilteredProducts.length === 0 ? (
+                      <tr><td colSpan={5} className="px-4 py-10 text-center text-sm text-muted">No products match the selected filters.</td></tr>
+                    ) : inventoryFilteredProducts.map((p) => {
                       const serialized = serialEnabled && p.trackingType === "SERIAL_OR_IMEI";
                       const soldOut = p.stockQuantity <= 0;
                       const inactive = p.isActive === false;
