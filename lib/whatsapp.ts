@@ -82,5 +82,5 @@ export function buildWhatsAppReceiptUrl(opts: {
   const phone = normalizeWaPhone(opts.customerPhone, opts.defaultCountryCode || "92");
   if (!phone) return null;
   const text = formatReceiptMessage(opts.shopName, opts.invoice, opts.currency || "PKR");
-  return `https://wa.me/${phone}?text=${encodeURIComponent(text)}`;
+  return `https://api.whatsapp.com/send?phone=${phone}&text=${encodeURIComponent(text)}`;
 }
