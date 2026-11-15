@@ -449,19 +449,48 @@ export function StorePanel({ businessId, section }: { businessId: string; sectio
       </div></body></html>`;
   };
 
+  const printViaIframe = (html: string) => {
+    try {
+      const iframe = document.createElement("iframe");
+      iframe.style.position = "fixed";
+      iframe.style.right = "0";
+      iframe.style.bottom = "0";
+      iframe.style.width = "0";
+      iframe.style.height = "0";
+      iframe.style.border = "0";
+      iframe.setAttribute("aria-hidden", "true");
+      document.body.appendChild(iframe);
+      const doc = iframe.contentWindow?.document;
+      if (!doc) { document.body.removeChild(iframe); flash("err", "Could not open print view."); return; }
+      doc.open();
+      doc.write(html);
+      doc.close();
+      setTimeout(() => {
+        try { iframe.contentWindow?.focus(); iframe.contentWindow?.print(); } catch { flash("err", "Could not open print view."); }
+        setTimeout(() => { try { document.body.removeChild(iframe); } catch {} }, 1000);
+      }, 350);
+    } catch {
+      flash("err", "Could not open print view.");
+    }
+  };
+
   const printReceiptWindow = (inv: Invoice, preOpened?: Window | null) => {
     const html = buildReceiptHtml(inv);
-    const w = preOpened && !preOpened.closed ? preOpened : window.open("", "_blank");
-    if (!w) { flash("err", "Please allow popups to print the receipt."); return; }
-    try {
-      w.document.open();
-      w.document.write(html);
-      w.document.close();
-      w.focus();
-      setTimeout(() => { try { w.print(); } catch {} }, 350);
-    } catch {
-      flash("err", "Could not open print window.");
+    const w = preOpened && !preOpened.closed ? preOpened : null;
+    if (w) {
+      try {
+        w.document.open();
+        w.document.write(html);
+        w.document.close();
+        w.focus();
+        setTimeout(() => { try { w.print(); } catch {} }, 350);
+        return;
+      } catch {
+        // fall through to iframe
+      }
     }
+    // Fallback: iframe print (no popup permission needed)
+    printViaIframe(html);
   };
 
   const triggerPrint = (inv: Invoice) => {
@@ -516,9 +545,8 @@ export function StorePanel({ businessId, section }: { businessId: string; sectio
       flash("err", "Customer phone number is required (with country code 92).");
       return;
     }
-    // Open print window synchronously in click handler so popup blockers allow auto-print after checkout.
+    // Try to open print window in click handler for popup-based print; iframe fallback is used if blocked.
     const autoPrintWin = window.open("", "_blank");
-    if (!autoPrintWin) flash("err", "Please allow popups to auto-print the receipt (you can print from the last sale).");
     setCheckingOut(true);
 
     // Group serialized lines by product -> serialItemIds; keep bulk lines as quantity
@@ -550,6 +578,7 @@ export function StorePanel({ businessId, section }: { businessId: string; sectio
     };
 
     let networkFailure = false;
+    const soldCart = [...cart];
     try {
       const res = await fetch(`/api/businesses/${businessId}/checkout`, {
         method: "POST",
@@ -568,7 +597,12 @@ export function StorePanel({ businessId, section }: { businessId: string; sectio
       setRxNote("");
       flash("ok", data.duplicate ? `Sale already recorded: ${inv.invoiceNumber}` : `Sale complete: ${inv.invoiceNumber}`);
       printReceiptWindow(inv, autoPrintWin);
-      void loadAll({ silent: true });
+      if (!data.duplicate) {
+        applyLocalSaleToState(soldCart);
+        setInvoices((prev) => [inv, ...prev.filter((x) => x.id !== inv.id)]);
+      } else {
+        void loadAll({ silent: true });
+      }
     } catch (e) {
       networkFailure = e instanceof TypeError || (e instanceof Error && /fetch|network|load failed/i.test(e.message));
       if (networkFailure && features.offlineSync) {
