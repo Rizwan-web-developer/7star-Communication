@@ -257,6 +257,24 @@ export function StorePanel({ businessId, section }: { businessId: string; sectio
   useEffect(() => { void loadAll(); }, [loadAll]);
   useEffect(() => { if (section) setTab(section); }, [section]);
 
+  const filteredProducts = useMemo(() => {
+    const t = q.trim().toLowerCase();
+    const active = products.filter((p) => p.isActive !== false);
+    if (!t) return active;
+    return active.filter((p) => {
+      const base = [p.name, p.sku, p.barcode, p.category, p.brand, p.supplierName].some((v) => (v || "").toLowerCase().includes(t));
+      if (base) return true;
+      return (p.serialItems || []).some((s) => s.serialOrImei.toLowerCase().includes(t));
+    });
+  }, [products, q]);
+
+  const cartTotal = cart.reduce((s, l) => s + l.product.sellingPrice * l.quantity, 0);
+  const cartDiscount = features.discounts ? Math.min(Math.max(0, Number(discountInput) || 0), cartTotal) : 0;
+  const cartGrand = Math.max(0, cartTotal - cartDiscount);
+  const cartDownPayment = features.installments ? Math.min(Math.max(0, Number(downPaymentInput) || 0), cartGrand) : 0;
+  const cartDue = Math.max(0, cartGrand - cartDownPayment);
+  const cartHasRx = cart.some((l) => l.product.prescriptionRequired);
+
   useEffect(() => {
     if (tab !== "pos") return;
     const onKeyDown = (e: KeyboardEvent) => {
@@ -285,24 +303,6 @@ export function StorePanel({ businessId, section }: { businessId: string; sectio
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [tab, filteredProducts.length]);
-
-  const filteredProducts = useMemo(() => {
-    const t = q.trim().toLowerCase();
-    const active = products.filter((p) => p.isActive !== false);
-    if (!t) return active;
-    return active.filter((p) => {
-      const base = [p.name, p.sku, p.barcode, p.category, p.brand, p.supplierName].some((v) => (v || "").toLowerCase().includes(t));
-      if (base) return true;
-      return (p.serialItems || []).some((s) => s.serialOrImei.toLowerCase().includes(t));
-    });
-  }, [products, q]);
-
-  const cartTotal = cart.reduce((s, l) => s + l.product.sellingPrice * l.quantity, 0);
-  const cartDiscount = features.discounts ? Math.min(Math.max(0, Number(discountInput) || 0), cartTotal) : 0;
-  const cartGrand = Math.max(0, cartTotal - cartDiscount);
-  const cartDownPayment = features.installments ? Math.min(Math.max(0, Number(downPaymentInput) || 0), cartGrand) : 0;
-  const cartDue = Math.max(0, cartGrand - cartDownPayment);
-  const cartHasRx = cart.some((l) => l.product.prescriptionRequired);
 
   const todayIso = useMemo(() => isoDate(new Date()), []);
   const [salesStart, setSalesStart] = useState(() => {
@@ -440,7 +440,7 @@ export function StorePanel({ businessId, section }: { businessId: string; sectio
         body: JSON.stringify(payload),
       });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) { const m = apiMessage(data, "Checkout failed"); throw new Error(m.msg); } }
+      if (!res.ok) { const m = apiMessage(data, "Checkout failed"); throw new Error(m.msg); }
       const inv = data.invoice as Invoice;
       setLastInvoice(inv);
       setCart([]);
@@ -556,7 +556,7 @@ export function StorePanel({ businessId, section }: { businessId: string; sectio
         body: JSON.stringify({ adjustStock: delta }),
       });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) { const m = apiMessage(data, "Update failed"); throw new Error(m.msg); } }
+      if (!res.ok) { const m = apiMessage(data, "Update failed"); throw new Error(m.msg); }
       setProducts((cur) => cur.map((x) => (x.id === p.id ? (data.product as Product) : x)));
     } catch (e) {
       flash("err", e instanceof Error ? e.message : "Stock update failed");
@@ -584,7 +584,7 @@ export function StorePanel({ businessId, section }: { businessId: string; sectio
     try {
       const res = await fetch(`/api/businesses/${businessId}/products/${p.id}`, { method: "DELETE" });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) { const m = apiMessage(data, "Delete failed"); throw new Error(m.msg); } }
+      if (!res.ok) { const m = apiMessage(data, "Delete failed"); throw new Error(m.msg); }
       setProducts((cur) => cur.filter((x) => x.id !== p.id));
       flash("ok", "Product deleted.");
       setConfirmDelete(null);
