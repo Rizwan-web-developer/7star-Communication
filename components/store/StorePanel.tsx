@@ -694,11 +694,11 @@ export function StorePanel({ businessId, section }: { businessId: string; sectio
               ) : filteredProducts.length === 0 ? (
                 <p className="mt-6 text-sm text-muted">No matching products for &quot;{q.trim()}&quot;.</p>
               ) : (
-                <p className="mt-6 text-sm text-muted">Search by name, category, brand, or serial/IMEI to find products.</p>
-              ) : filteredProducts.length === 0 ? (
-                <p className="mt-6 text-sm text-muted">No matching products for &quot;{q.trim()}&quot;.</p>
               ) : (
-                    const available = serialized ? (p.serialItems || []).filter((s) => !s.isSold).length : isService ? Number.MAX_SAFE_INTEGER : p.stockQuantity;
+                <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+                  {filteredProducts.map((p) => {
+                    const serialized = serialEnabled && p.trackingType === "SERIAL_OR_IMEI";
+                    const isService = Boolean(p.serviceItem);
                     const expired = features.batchExpiry && p.expiryDate ? new Date(p.expiryDate).getTime() < Date.now() : false;
                     return (
                       <button key={p.id} data-pos-card="1" type="button" onClick={() => addToCart(p)} disabled={available <= 0 || expired} className="focus-ring rounded-lg border border-line bg-surface-2 p-3 text-left transition-colors hover:border-accent/40 disabled:cursor-not-allowed disabled:opacity-50">
