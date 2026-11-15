@@ -533,7 +533,6 @@ export function StorePanel({ businessId, section }: { businessId: string; sectio
       return;
     }
     setCheckingOut(true);
-    const autoPrintWin: Window | null = null;
 
     // Group serialized lines by product -> serialItemIds; keep bulk lines as quantity
     const serialGroups = new Map<string, string[]>();
@@ -641,9 +640,8 @@ export function StorePanel({ businessId, section }: { businessId: string; sectio
         setDownPaymentInput("");
         setRxNote("");
         flash("ok", `Saved offline (${queue.length} pending). It will sync automatically when online.`);
-        printReceiptWindow(localInvoice, autoPrintWin);
+        printReceiptWindow(localInvoice);
       } else {
-        try { if (autoPrintWin && !autoPrintWin.closed) autoPrintWin.close(); } catch {}
         flash("err", e instanceof Error ? e.message : "Checkout failed");
       }
     } finally {
