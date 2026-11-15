@@ -26,21 +26,17 @@ export function StoreSettings({ businessId }: { businessId: string }) {
   const [pwSaving, setPwSaving] = useState(false);
   const [pwMsg, setPwMsg] = useState<{ tone: "ok" | "err"; text: string } | null>(null);
 
-  // MULTI_USER: staff accounts
-  const [featureKeys, setFeatureKeys] = useState<string[]>([]);
+  // Cashier (POS-only) accounts
   const [role, setRole] = useState("");
   const [staff, setStaff] = useState<StaffMember[]>([]);
   const [staffLoading, setStaffLoading] = useState(false);
   const [staffMsg, setStaffMsg] = useState<{ tone: "ok" | "err"; text: string } | null>(null);
   const [staffBusy, setStaffBusy] = useState(false);
-  const [staffName, setStaffName] = useState("");
   const [staffUsername, setStaffUsername] = useState("");
   const [staffEmail, setStaffEmail] = useState("");
   const [staffPassword, setStaffPassword] = useState("");
-  const [staffRole, setStaffRole] = useState("CASHIER");
   const [staffDel, setStaffDel] = useState<StaffMember | null>(null);
 
-  const multiUserEnabled = featureKeys.includes("MULTI_USER");
   const canManageStaff = ["OWNER", "MANAGER", "SUPER_ADMIN", "SUB_ADMIN"].includes(role);
 
   const loadStaff = async () => {
@@ -57,21 +53,16 @@ export function StoreSettings({ businessId }: { businessId: string }) {
   useEffect(() => {
     void (async () => {
       try {
-        const [fRes, pRes] = await Promise.all([
-          fetch(`/api/businesses/${businessId}/features`, { cache: "no-store" }),
-          fetch(`/api/businesses/${businessId}/profile`, { cache: "no-store" }),
-        ]);
-        const fData = await fRes.json().catch(() => ({}));
-        const pData = await pRes.json().catch(() => ({}));
-        if (fRes.ok && Array.isArray(fData.features)) setFeatureKeys(fData.features.map((k: unknown) => String(k)));
-        if (pRes.ok && pData.role) setRole(String(pData.role));
+        const res = await fetch(`/api/businesses/${businessId}/profile`, { cache: "no-store" });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok && data.role) setRole(String(data.role));
       } catch { /* ignore */ }
     })();
   }, [businessId]);
 
   useEffect(() => {
-    if (multiUserEnabled && canManageStaff) void loadStaff();
-  }, [multiUserEnabled, canManageStaff]);
+    if (canManageStaff) void loadStaff();
+  }, [canManageStaff, businessId]);
 
   const addStaff = async (e: FormEvent) => {
     e.preventDefault();
@@ -81,13 +72,13 @@ export function StoreSettings({ businessId }: { businessId: string }) {
       const res = await fetch(`/api/businesses/${businessId}/staff`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: staffName, username: staffUsername, email: staffEmail, password: staffPassword, role: staffRole }),
+        body: JSON.stringify({ username: staffUsername, email: staffEmail, password: staffPassword, role: "CASHIER" }),
       });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.message || "Failed to add user.");
+      if (!res.ok) throw new Error(data.message || "Failed to add cashier.");
       setStaff((cur) => [...cur, data.staff as StaffMember]);
-      setStaffName(""); setStaffUsername(""); setStaffEmail(""); setStaffPassword(""); setStaffRole("CASHIER");
-      setStaffMsg({ tone: "ok", text: "User account created." });
+      setStaffUsername(""); setStaffEmail(""); setStaffPassword("");
+      setStaffMsg({ tone: "ok", text: "Cashier account created." });
     } catch (err) {
       setStaffMsg({ tone: "err", text: err instanceof Error ? err.message : "Failed to add user." });
     } finally {
@@ -221,13 +212,21 @@ export function StoreSettings({ businessId }: { businessId: string }) {
             <label className="text-sm"><span className="mb-1 block font-medium text-foreground">Location</span>
               <input value={location} onChange={(e) => setLocation(e.target.value)} className="focus-ring h-10 w-full rounded-lg border border-line bg-surface-2 px-3 text-sm text-foreground" />
             </label>
-            <label className="text-sm"><span className="mb-1 block font-medium text-foreground">WhatsApp country code</span>
-              <input value={waCountryCode} onChange={(e) => setWaCountryCode(e.target.value.replace(/[^\d]/g, "").slice(0, 5))} placeholder="92" className="focus-ring h-10 w-full rounded-lg border border-line bg-surface-2 px-3 text-sm text-foreground" />
-              <span className="mt-1 block text-[11px] text-muted">Default country code for customer numbers (e.g. 92 for Pakistan).</span>
-            </label>
-            <label className="text-sm"><span className="mb-1 block font-medium text-foreground">Business/Owner WhatsApp number</span>
-              <input value={waNumber} onChange={(e) => setWaNumber(e.target.value.replace(/[^\d+]/g, "").slice(0, 20))} placeholder="e.g. 923001234567" className="focus-ring h-10 w-full rounded-lg border border-line bg-surface-2 px-3 text-sm text-foreground" />
-              <span className="mt-1 block text-[11px] text-muted">Reference number for your shop (used for WhatsApp receipt sharing context).</span>
+            <label className="text-sm sm:col-span-2"><span className="mb-1 block font-medium text-foreground">Business/Owner WhatsApp number</span>
+              <div className="flex gap-2">
+                <select value={waCountryCode || "92"} onChange={(e) => setWaCountryCode(e.target.value)} className="focus-ring h-10 w-28 rounded-lg border border-line bg-surface-2 px-2 text-sm text-foreground" aria-label="Country code">
+                  <option value="92">+92 (PK)</option>
+                  <option value="91">+91 (IN)</option>
+                  <option value="971">+971 (UAE)</option>
+                  <option value="966">+966 (SA)</option>
+                  <option value="44">+44 (UK)</option>
+                  <option value="1">+1 (US)</option>
+                  <option value="61">+61 (AU)</option>
+                  <option value="880">+880 (BD)</option>
+                </select>
+                <input value={waNumber} onChange={(e) => setWaNumber(e.target.value.replace(/[^\d]/g, "").slice(0, 15))} placeholder="WhatsApp number" className="focus-ring h-10 flex-1 rounded-lg border border-line bg-surface-2 px-3 text-sm text-foreground" />
+              </div>
+              <span className="mt-1 block text-[11px] text-muted">Country code and WhatsApp number (used for receipt sharing). Owner number is used for POS WhatsApp sharing.</span>
             </label>
           </div>
 
@@ -260,82 +259,55 @@ export function StoreSettings({ businessId }: { businessId: string }) {
         </form>
       </section>
 
-      {multiUserEnabled && canManageStaff ? (
+      {canManageStaff ? (
         <section className="rounded-xl border border-line bg-surface p-5">
-          <h2 className="flex items-center gap-2 text-base font-semibold text-foreground"><Users className="h-4 w-4 text-accent" /> User accounts</h2>
-          <p className="mt-0.5 text-sm text-muted">Add users for your shop. POS-only users can only access POS/sales. Admin users get full access.</p>
+          <h2 className="flex items-center gap-2 text-base font-semibold text-foreground"><Users className="h-4 w-4 text-accent" /> Cashier accounts</h2>
+          <p className="mt-0.5 text-sm text-muted">Add cashier accounts. Cashiers can only access POS (sell products). Add with username, email, and password.</p>
 
           <form onSubmit={addStaff} className="mt-4 grid gap-3 sm:grid-cols-2">
-            <label className="text-sm"><span className="mb-1 block font-medium text-foreground">Name</span>
-              <input value={staffName} onChange={(e) => setStaffName(e.target.value)} required minLength={2} className="focus-ring h-10 w-full rounded-lg border border-line bg-surface-2 px-3 text-sm text-foreground" />
+            <label className="text-sm"><span className="mb-1 block font-medium text-foreground">Username *</span>
+              <input value={staffUsername} onChange={(e) => setStaffUsername(e.target.value)} required placeholder="e.g. cashier1" className="focus-ring h-10 w-full rounded-lg border border-line bg-surface-2 px-3 text-sm text-foreground" />
             </label>
-            <label className="text-sm"><span className="mb-1 block font-medium text-foreground">Username</span>
-              <input value={staffUsername} onChange={(e) => setStaffUsername(e.target.value)} placeholder="e.g. rizwanpos" className="focus-ring h-10 w-full rounded-lg border border-line bg-surface-2 px-3 text-sm text-foreground" />
-              <span className="mt-1 block text-[11px] text-muted">Optional. Can be used to sign in.</span>
+            <label className="text-sm"><span className="mb-1 block font-medium text-foreground">Email *</span>
+              <input type="email" value={staffEmail} onChange={(e) => setStaffEmail(e.target.value)} required placeholder="cashier@example.com" className="focus-ring h-10 w-full rounded-lg border border-line bg-surface-2 px-3 text-sm text-foreground" />
             </label>
-            <label className="text-sm"><span className="mb-1 block font-medium text-foreground">Email</span>
-              <input type="email" value={staffEmail} onChange={(e) => setStaffEmail(e.target.value)} required className="focus-ring h-10 w-full rounded-lg border border-line bg-surface-2 px-3 text-sm text-foreground" />
-            </label>
-            <label className="text-sm"><span className="mb-1 block font-medium text-foreground">Password</span>
+            <label className="text-sm sm:col-span-2"><span className="mb-1 block font-medium text-foreground">Password *</span>
               <input type="password" value={staffPassword} onChange={(e) => setStaffPassword(e.target.value)} required minLength={10} autoComplete="new-password" className="focus-ring h-10 w-full rounded-lg border border-line bg-surface-2 px-3 text-sm text-foreground" />
               <span className="mt-1 block text-[11px] text-muted">Min 10 chars with upper/lowercase + number.</span>
-            </label>
-            <label className="text-sm sm:col-span-2"><span className="mb-1 block font-medium text-foreground">Access</span>
-              <select value={staffRole} onChange={(e) => setStaffRole(e.target.value)} className="focus-ring h-10 w-full rounded-lg border border-line bg-surface-2 px-3 text-sm text-foreground">
-                <option value="CASHIER">POS only (can sell products only)</option>
-                <option value="MANAGER">Admin (full access)</option>
-              </select>
             </label>
             {staffMsg ? <div className={cn("rounded-lg border px-3 py-2 text-sm sm:col-span-2", staffMsg.tone === "ok" ? "border-emerald-500/25 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300" : "border-rose-500/25 bg-rose-500/10 text-rose-700 dark:text-rose-300")}>{staffMsg.text}</div> : null}
             <div className="sm:col-span-2">
               <button type="submit" disabled={staffBusy} className="focus-ring inline-flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-accent-fg disabled:opacity-60">
-                {staffBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserPlus className="h-4 w-4" />} Add user
+                {staffBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserPlus className="h-4 w-4" />} Add cashier
               </button>
             </div>
           </form>
 
           <div className="mt-5 overflow-hidden rounded-lg border border-line">
             {staffLoading ? (
-              <div className="flex items-center gap-2 px-4 py-6 text-sm text-muted"><Loader2 className="h-4 w-4 animate-spin" /> Loading users…</div>
-            ) : staff.length === 0 ? (
-              <p className="px-4 py-6 text-center text-sm text-muted">No user accounts yet.</p>
+              <div className="flex items-center gap-2 px-4 py-6 text-sm text-muted"><Loader2 className="h-4 w-4 animate-spin" /> Loading accounts…</div>
+            ) : staff.filter((s) => s.role !== "OWNER").length === 0 ? (
+              <p className="px-4 py-6 text-center text-sm text-muted">No cashier accounts yet.</p>
             ) : (
               <ul className="divide-y divide-line">
-                {staff.map((member) => (
+                {staff.filter((s) => s.role !== "OWNER").map((member) => (
                   <li key={member.id} className="flex flex-wrap items-center gap-2 px-4 py-3">
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-sm font-medium text-foreground">
-                        {member.name}
-                        {member.role === "OWNER" ? <span className="ml-1.5 rounded bg-accent-soft px-1.5 py-0.5 text-[10px] font-semibold text-accent">OWNER</span> : null}
-                        {member.role === "MANAGER" ? <span className="ml-1.5 rounded bg-accent-soft px-1.5 py-0.5 text-[10px] font-semibold text-accent">ADMIN</span> : null}
-                        {member.role === "CASHIER" ? <span className="ml-1.5 rounded bg-surface-2 px-1.5 py-0.5 text-[10px] font-semibold text-muted">POS ONLY</span> : null}
+                        {member.name || member.username || member.email}
+                        <span className="ml-1.5 rounded bg-surface-2 px-1.5 py-0.5 text-[10px] font-semibold text-muted">POS ONLY</span>
                       </p>
                       <p className="truncate text-xs text-muted">{member.username ? `${member.username} • ` : ""}{member.email}</p>
                     </div>
-                    {member.role !== "OWNER" ? (
-                      <>
-                        <select value={member.role} onChange={(e) => void patchStaff(member, { role: e.target.value })} className="focus-ring h-8 rounded-md border border-line bg-surface-2 px-2 text-xs text-foreground" aria-label={`Role for ${member.name}`}>
-                          <option value="CASHIER">POS only</option>
-                          <option value="MANAGER">Admin (full)</option>
-                        </select>
-                        <button type="button" onClick={() => void patchStaff(member, { isActive: !member.isActive })} className={cn("focus-ring rounded-md border px-2 py-1 text-xs font-medium", member.isActive ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300" : "border-line bg-surface-2 text-muted")}>{member.isActive ? "Active" : "Disabled"}</button>
-                        <button type="button" onClick={() => setStaffDel(member)} className="focus-ring rounded-md border border-line bg-surface-2 p-1.5 text-muted hover:border-rose-400/40 hover:text-rose-600" aria-label={`Delete ${member.name}`}><Trash2 className="h-3.5 w-3.5" /></button>
-                      </>
-                    ) : (
-                      <span className="text-xs text-muted">Owner</span>
-                    )}
+                    <button type="button" onClick={() => void patchStaff(member, { isActive: !member.isActive })} className={cn("focus-ring rounded-md border px-2 py-1 text-xs font-medium", member.isActive ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300" : "border-line bg-surface-2 text-muted")}>{member.isActive ? "Active" : "Disabled"}</button>
+                    <button type="button" onClick={() => setStaffDel(member)} className="focus-ring rounded-md border border-line bg-surface-2 p-1.5 text-muted hover:border-rose-400/40 hover:text-rose-600" aria-label={`Delete ${member.name}`}><Trash2 className="h-3.5 w-3.5" /></button>
                   </li>
                 ))}
               </ul>
             )}
           </div>
         </section>
-      ) : (
-        <section className="rounded-xl border border-line bg-surface p-5">
-          <h2 className="flex items-center gap-2 text-base font-semibold text-foreground"><Users className="h-4 w-4 text-muted" /> User accounts</h2>
-          <p className="mt-1 text-sm text-muted">User accounts are not enabled for this business. Contact the platform admin to enable <b>Staff accounts</b> from Access.</p>
-        </section>
-      )}
+      ) : null}
 
       <ConfirmDialog
         open={!!staffDel}

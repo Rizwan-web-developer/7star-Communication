@@ -2,10 +2,7 @@ import { NextResponse } from "next/server";
 
 import { prisma } from "@/lib/db";
 import { hashPassword, isPlatformAdmin, requireTenantAccess, validatePassword } from "@/lib/auth/server";
-import { tenantHasFeature } from "@/lib/tenant-features";
 import { assertTenantWritable } from "@/lib/trial-guard";
-
-const STAFF_ROLES = new Set(["MANAGER", "CASHIER"]);
 
 function serializeStaff(user: any) {
   return { id: user.id, name: user.name, username: user.username ?? null, email: user.email, role: user.role, isActive: user.isActive, lastLoginAt: user.lastLoginAt, createdAt: user.createdAt };
@@ -17,9 +14,6 @@ async function guard(id: string, sessionRole: string, adminBypass = false) {
   }
   const blocked = await assertTenantWritable(id, { adminBypass });
   if (blocked) return blocked;
-  if (!(await tenantHasFeature(id, "MULTI_USER"))) {
-    return NextResponse.json({ message: "Staff accounts are not enabled for this business." }, { status: 403 });
-  }
   return null;
 }
 
@@ -45,12 +39,7 @@ export async function PATCH(req: Request, { params }: { params: { id: string; st
       }
       data.username = raw || null;
     }
-    if (typeof body?.role === "string") {
-      const roleRaw = String(body.role).toUpperCase();
-      const role = roleRaw === "ADMIN" ? "MANAGER" : roleRaw;
-      if (!STAFF_ROLES.has(role)) return NextResponse.json({ message: "Invalid role." }, { status: 400 });
-      data.role = role;
-    }
+    // Cashier-only accounts: role changes not allowed via this endpoint.
     if (typeof body?.isActive === "boolean") data.isActive = body.isActive;
     if (typeof body?.password === "string" && body.password.length > 0) {
       const pwError = validatePassword(body.password);

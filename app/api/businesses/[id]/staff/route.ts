@@ -2,10 +2,9 @@ import { NextResponse } from "next/server";
 
 import { prisma } from "@/lib/db";
 import { hashPassword, isPlatformAdmin, normalizeEmail, requireTenantAccess, validatePassword } from "@/lib/auth/server";
-import { tenantHasFeature } from "@/lib/tenant-features";
 import { assertTenantWritable } from "@/lib/trial-guard";
 
-const STAFF_ROLES = new Set(["MANAGER", "CASHIER", "OWNER"]);
+const STAFF_ROLES = new Set(["CASHIER"]);
 
 function serializeStaff(user: any) {
   return { id: user.id, name: user.name, username: user.username ?? null, email: user.email, role: user.role, isActive: user.isActive, lastLoginAt: user.lastLoginAt, createdAt: user.createdAt };
@@ -17,9 +16,6 @@ async function guard(id: string, sessionRole: string, adminBypass = false) {
   }
   const blocked = await assertTenantWritable(id, { adminBypass });
   if (blocked) return blocked;
-  if (!(await tenantHasFeature(id, "MULTI_USER"))) {
-    return NextResponse.json({ message: "Staff accounts are not enabled for this business." }, { status: 403 });
-  }
   return null;
 }
 
@@ -45,18 +41,15 @@ export async function POST(req: Request, { params }: { params: { id: string } })
 
   try {
     const body = await req.json().catch(() => ({}));
-    const name = String(body?.name ?? "").trim().slice(0, 100);
     const email = normalizeEmail(String(body?.email ?? ""));
     const rawUsername = String(body?.username ?? "").trim();
     const username = rawUsername ? rawUsername.slice(0, 50) : null;
+    const name = String(body?.name ?? "").trim().slice(0, 100) || username || email.split("@")[0] || "Cashier";
     const password = String(body?.password ?? "");
-    const roleRaw = String(body?.role ?? "CASHIER").toUpperCase();
-    const mappedRole = roleRaw === "ADMIN" ? "MANAGER" : roleRaw;
-    const role = STAFF_ROLES.has(mappedRole) && mappedRole !== "OWNER" ? mappedRole : "CASHIER";
+    const role = "CASHIER";
 
-    if (name.length < 2) return NextResponse.json({ message: "Name is required." }, { status: 400 });
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return NextResponse.json({ message: "A valid email is required." }, { status: 400 });
-    if (username && !/^[a-zA-Z0-9._-]{3,50}$/.test(username)) return NextResponse.json({ message: "Username must be 3-50 chars (letters, numbers, dot, underscore, dash)." }, { status: 400 });
+    if (!username || !/^[a-zA-Z0-9._-]{3,50}$/.test(username)) return NextResponse.json({ message: "Username must be 3-50 chars (letters, numbers, dot, underscore, dash)." }, { status: 400 });
     const pwError = validatePassword(password);
     if (pwError) return NextResponse.json({ message: pwError }, { status: 400 });
 
