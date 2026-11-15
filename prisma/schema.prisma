@@ -1,0 +1,595 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "rhel-openssl-3.0.x"]
+}
+
+// Business category / panel type (each category maps to its own customized panel)
+enum IndustryType {
+  MOBILE_ACCESSORIES
+  PHARMACY
+  GROCERY
+  ELECTRONICS
+  HARDWARE_SHOP
+  PAINT_SHOP
+  COSMETICS_SHOP
+}
+
+enum PlanTier {
+  STARTER
+  PRO
+  ENTERPRISE
+  MARKETING_AGENCY
+}
+
+enum UserRole {
+  SUPER_ADMIN
+  SUB_ADMIN
+  OWNER
+  MANAGER
+  CASHIER
+}
+
+enum SyncStatus {
+  SYNCED
+  PENDING_OFFLINE
+}
+
+enum BusinessStatus {
+  ACTIVE
+  TRIAL
+  DEACTIVE
+}
+
+enum AccountType {
+  REAL
+  DEMO
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  EXPIRING_SOON
+  OVERDUE
+  CANCELLED
+  TRIAL
+}
+
+enum BillingPaymentStatus {
+  PAID
+  PENDING
+  OVERDUE
+  FAILED
+}
+
+enum VoucherStatus {
+  UNPAID
+  PAID
+  CANCELLED
+}
+
+enum TicketStatus {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
+}
+
+enum TicketPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum ServiceJobStatus {
+  RECEIVED
+  IN_PROGRESS
+  READY
+  DELIVERED
+  CANCELLED
+}
+
+enum SupplierEntryType {
+  PURCHASE
+  PAYMENT
+}
+
+// Business record (admin-managed). Kept as `Tenant` model name for compatibility with existing relations.
+model Tenant {
+  id               String         @id @default(cuid())
+  uid              String?        @unique // Human-readable business ID, e.g. BUS-8821
+  businessName     String
+  slug             String?        @unique // Workspace subdomain/id
+  industryType     IndustryType
+  subscriptionTier PlanTier       @default(STARTER)
+  accountType      AccountType    @default(REAL)
+  billingMode      BillingMode    @default(INTERNATIONAL_AUTO)
+  status           BusinessStatus @default(ACTIVE)
+  isActive         Boolean        @default(true)
+  trialEndsAt      DateTime?      // Trial: 7 days from creation; full access, auto-locks (data preserved)
+  trialStartedAt   DateTime?
+  convertedAt      DateTime?      // Demo/Trial -> paid conversion time
+  ownerName        String?
+  email            String?
+  phone            String?
+  country          String?
+  location         String?
+  mrr              Decimal?       @db.Decimal(12, 2)
+  terminals        Int            @default(0)
+  staff            Int            @default(0)
+  subscriptionPaidUntil DateTime? // Paid window expiry -> auto Deactive (data preserved)
+  lastPaidAt       DateTime?      // Exact time payment was marked/confirmed
+  logoDataUrl      String?        // Shop/outlet logo (managed by shop in settings)
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  users            User[]
+  products         Product[]
+  invoices         Invoice[]
+  subscriptions    BusinessSubscription[]
+  billingInvoices  BillingInvoice[]
+  vouchers         SubscriptionVoucher[]
+  syncLogs         SyncHealthLog[]
+  tickets          SupportTicket[]
+  brands           Brand[]
+  categories       Category[]
+  features         TenantFeature[]
+  serviceJobs      ServiceJob[]
+  suppliers        Supplier[]
+
+  @@index([industryType])
+  @@index([status])
+  @@index([accountType])
+  @@index([trialEndsAt])
+  @@index([subscriptionPaidUntil])
+}
+
+model SubscriptionPlan {
+  id            String   @id @default(cuid())
+  key           PlanTier @unique
+  name          String
+  priceUsd      Int      @default(0) // monthly price in USD
+  pricePkr      Int      @default(0) // legacy/local reference
+  description   String?
+  features      String[] // simple list
+  isActive      Boolean  @default(true)
+  updatedAt     DateTime @updatedAt
+  createdAt     DateTime @default(now())
+
+  subscriptions BusinessSubscription[]
+}
+
+model BusinessSubscription {
+  id                 String             @id @default(cuid())
+  tenantId           String
+  tenant             Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  planId             String
+  plan               SubscriptionPlan   @relation(fields: [planId], references: [id], onDelete: Restrict)
+  status             SubscriptionStatus @default(ACTIVE)
+  amountPkr          Int
+  startedAt          DateTime           @default(now())
+  currentPeriodStart DateTime           @default(now())
+  currentPeriodEnd   DateTime
+  nextBillingAt      DateTime?
+  cancelledAt        DateTime?
+  notes              String?
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+
+  invoices           BillingInvoice[]
+
+  @@index([tenantId])
+  @@index([status])
+  @@index([currentPeriodEnd])
+}
+
+model BillingInvoice {
+  id             String               @id @default(cuid())
+  tenantId       String
+  tenant         Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  subscriptionId String?
+  subscription   BusinessSubscription? @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
+  invoiceNumber  String               @unique
+  amountUsd      Int                  @default(0)
+  amountPkr      Int                  @default(0) // legacy/local reference
+  status         BillingPaymentStatus @default(PENDING)
+  dueDate        DateTime
+  paidAt         DateTime?
+  method         String?
+  notes          String?
+  createdAt      DateTime             @default(now())
+
+  @@index([tenantId])
+  @@index([status])
+  @@index([dueDate])
+}
+
+// Monthly subscription voucher. Admin marks Paid at collection time -> 35 days (N vouchers = N*30+5 days); auto-lock on expiry.
+model SubscriptionVoucher {
+  id         String        @id @default(cuid())
+  tenantId   String
+  tenant     Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  year       Int
+  month      Int           // 1-12
+  label      String        // e.g. "2026-06"
+  amountUsd  Int           @default(0)
+  amountPkr  Int           @default(15000) // legacy/local reference
+  status     VoucherStatus @default(UNPAID)
+  paidAt     DateTime?     // exact day & time marked Paid
+  validUntil DateTime?     // paidAt + (N*30 + 5) days for the payment action
+  notes      String?
+  createdAt  DateTime      @default(now())
+  updatedAt  DateTime      @updatedAt
+
+  @@unique([tenantId, year, month])
+  @@index([tenantId])
+  @@index([status])
+  @@index([paidAt])
+}
+
+model IndustryModuleConfig {
+  id           String       @id @default(cuid())
+  industryType IndustryType @unique
+  displayName  String
+  enabled      Boolean      @default(true)
+  description  String?
+  features     Json?        // { imeiTracking: true, expiryBatchTracking: false, ... }
+  updatedAt    DateTime     @updatedAt
+  createdAt    DateTime     @default(now())
+}
+
+model SyncHealthLog {
+  id            String   @id @default(cuid())
+  tenantId      String?
+  tenant        Tenant?  @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  source        String   @default("system") // system|tenant|api
+  level         String   @default("info")   // info|warn|error
+  status        String   @default("ok")     // ok|degraded|down
+  message       String
+  pendingQueue  Int      @default(0)
+  latencyMs     Int?
+  metadata      Json?
+  createdAt     DateTime @default(now())
+
+  @@index([tenantId])
+  @@index([createdAt])
+  @@index([level])
+}
+
+model SupportTicket {
+  id          String         @id @default(cuid())
+  tenantId    String?
+  tenant      Tenant?        @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  subject     String
+  message     String
+  status      TicketStatus   @default(OPEN)
+  priority    TicketPriority @default(MEDIUM)
+  requester   String?
+  email       String?
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  @@index([tenantId])
+  @@index([status])
+}
+
+model Announcement {
+  id          String    @id @default(cuid())
+  title       String
+  body        String
+  audience    String    @default("all") // all|tenants|admins
+  publishedAt DateTime?
+  createdAt   DateTime  @default(now())
+  createdBy   String?
+}
+
+// Global platform branding/settings (singleton row id="default"). Logo shown on all panels.
+model PlatformSetting {
+  id                 String   @id @default("default")
+  platformName       String   @default("Omni Pos")
+  platformLogoDataUrl String?
+  updatedAt          DateTime @updatedAt
+}
+
+enum BillingMode {
+  LOCAL_MANUAL
+  INTERNATIONAL_AUTO
+}
+
+enum OtpPurpose {
+  SIGNUP
+  LOGIN
+}
+
+model EmailOtp {
+  id         String     @id @default(cuid())
+  email      String
+  purpose    OtpPurpose
+  codeHash   String
+  expiresAt  DateTime
+  consumedAt DateTime?
+  attempts   Int        @default(0)
+  payload    Json?
+  createdAt  DateTime   @default(now())
+
+  @@index([email, purpose])
+  @@index([expiresAt])
+}
+
+model User {
+  id           String    @id @default(cuid())
+  tenantId     String?
+  tenant       Tenant?   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name         String
+  email        String    @unique
+  passwordHash String
+  role         UserRole  @default(CASHIER)
+  imageDataUrl String?
+  isActive     Boolean   @default(true)
+  lastLoginAt  DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([tenantId])
+  @@index([role])
+}
+
+enum TrackingType {
+  QUANTITY_ONLY
+  SERIAL_OR_IMEI
+}
+
+model Product {
+  id             String       @id @default(cuid())
+  tenantId       String
+  tenant         Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name           String
+  sku            String?
+  barcode        String?
+  category       String       @default("") // snapshot name
+  categoryId     String?
+  categoryRef    Category?    @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  brand          String?      // snapshot name (kept for compatibility/display)
+  brandId        String?
+  brandRef       Brand?       @relation(fields: [brandId], references: [id], onDelete: SetNull)
+  supplierId     String?
+  supplierRef    Supplier?    @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  imageUrl       String?
+  trackingType   TrackingType @default(QUANTITY_ONLY)
+  costPrice      Decimal      @db.Decimal(10, 2)
+  sellingPrice   Decimal      @db.Decimal(10, 2)
+  stockQuantity  Int          @default(0) // QUANTITY_ONLY: total count; SERIAL_OR_IMEI: available (unsold) serials count
+  minStockAlert  Int          @default(5)
+  // --- Optional workflows (each gated by its Access feature) ---
+  batchNumber          String?   // BATCH_EXPIRY
+  expiryDate           DateTime? // BATCH_EXPIRY
+  prescriptionRequired Boolean   @default(false) // PRESCRIPTION
+  shadeCode            String?   // PAINT_SHADE
+  paintBase            String?   // PAINT_SHADE
+  packSize             String?   // PAINT_SHADE
+  unitLabel            String?   // MULTI_UNIT (piece, kg, litre, foot…)
+  installmentAvailable Boolean   @default(false) // INSTALLMENTS
+  serviceItem          Boolean   @default(false) // SERVICE_JOBS (non-stock service line)
+  isActive       Boolean      @default(true)
+  deletedAt      DateTime?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  mobileItem      MobileItem?
+  pharmacyItem    PharmacyItem?
+  electronicsItem ElectronicsItem?
+  serialItems     SerialItem[]
+  invoiceItems    InvoiceItem[]
+
+  @@index([tenantId])
+  @@index([brandId])
+  @@index([categoryId])
+  @@index([supplierId])
+  @@index([barcode])
+  @@index([name, category])
+}
+
+// Per-business feature access granted by the platform admin.
+// Checkbox ON -> row exists (feature added). Checkbox OFF -> row removed (feature gone).
+model TenantFeature {
+  id        String   @id @default(cuid())
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  key       String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([tenantId, key])
+  @@index([tenantId])
+  @@index([key])
+}
+
+model Brand {
+  id        String    @id @default(cuid())
+  tenantId  String
+  tenant    Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name      String
+  imageUrl  String?
+  createdAt DateTime  @default(now())
+  products  Product[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+}
+
+model Category {
+  id        String    @id @default(cuid())
+  tenantId  String
+  tenant    Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name      String
+  createdAt DateTime  @default(now())
+  products  Product[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+}
+
+model SerialItem {
+  id           String    @id @default(cuid())
+  tenantId     String
+  productId    String
+  product      Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+  serialOrImei String    @unique // Globally unique serial/IMEI tag
+  isSold       Boolean   @default(false)
+  soldAt       DateTime?
+  warrantyDays Int       @default(0)
+  createdAt    DateTime  @default(now())
+
+  invoiceItems InvoiceItem[]
+
+  @@index([tenantId])
+  @@index([productId])
+  @@index([serialOrImei])
+}
+
+model MobileItem {
+  id             String  @id @default(cuid())
+  productId      String  @unique
+  product        Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  imeiNumber     String? @unique
+  serialNumber   String?
+  warrantyMonths Int     @default(0)
+  condition      String  @default("NEW")
+}
+
+model PharmacyItem {
+  id                   String    @id @default(cuid())
+  productId            String    @unique
+  product              Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+  batchNumber          String
+  expiryDate           DateTime
+  formulaName          String?
+  prescriptionRequired Boolean   @default(false)
+}
+
+model ElectronicsItem {
+  id                   String  @id @default(cuid())
+  productId            String  @unique
+  product              Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  serialNumber         String?
+  installmentAvailable Boolean @default(false)
+}
+
+model Invoice {
+  id            String     @id @default(cuid())
+  tenantId      String
+  tenant        Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  invoiceNumber String
+  customerName  String?
+  customerPhone String?
+  subtotalPkr   Decimal    @db.Decimal(10, 2) @default(0)
+  discountPkr   Decimal    @db.Decimal(10, 2) @default(0)
+  totalAmount   Decimal    @db.Decimal(10, 2)
+  downPaymentPkr Decimal   @db.Decimal(10, 2) @default(0)
+  duePkr        Decimal    @db.Decimal(10, 2) @default(0)
+  paymentMethod String     @default("CASH")
+  prescriptionNote String? // PRESCRIPTION: doctor / Rx details
+  clientRef     String?    // OFFLINE_SYNC: idempotent client reference
+  syncStatus    SyncStatus @default(SYNCED)
+  createdAt     DateTime   @default(now())
+
+  items         InvoiceItem[]
+
+  @@unique([tenantId, clientRef])
+  @@index([tenantId])
+  @@index([syncStatus])
+  @@index([createdAt])
+}
+
+model InvoiceItem {
+  id           String      @id @default(cuid())
+  invoiceId    String
+  invoice      Invoice     @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  productId    String
+  product      Product     @relation(fields: [productId], references: [id], onDelete: Restrict)
+  serialItemId String?
+  serialItem   SerialItem? @relation(fields: [serialItemId], references: [id], onDelete: SetNull)
+  serialOrImei String?     // Snapshot for receipt/warranty display
+  productName  String?     // Snapshot for printing/history
+  brandName    String?     // Snapshot for printing/history
+  imageUrl     String?     // Snapshot for printing/history
+  batchNumber  String?     // Snapshot for pharmacy receipt
+  expiryDate   DateTime?   // Snapshot for pharmacy receipt
+  shadeCode    String?     // Snapshot for paint receipt
+  unitLabel    String?     // Snapshot for hardware/paint receipt
+  quantity     Int
+  unitPrice    Decimal     @db.Decimal(10, 2)
+  lineTotal    Decimal     @db.Decimal(10, 2)
+
+  @@index([invoiceId])
+  @@index([productId])
+  @@index([serialItemId])
+}
+
+// SERVICE_JOBS feature: repair / service job cards for a shop.
+model ServiceJob {
+  id            String           @id @default(cuid())
+  tenantId      String
+  tenant        Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  jobNumber     String
+  customerName  String
+  customerPhone String?
+  device        String
+  issue         String?
+  notes         String?
+  status        ServiceJobStatus @default(RECEIVED)
+  estimatePkr   Decimal          @default(0) @db.Decimal(10, 2)
+  deliveredAt   DateTime?
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  @@index([tenantId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+// SUPPLIER_LEDGER feature: suppliers + purchase/payment entries.
+model Supplier {
+  id                String          @id @default(cuid())
+  tenantId          String
+  tenant            Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name              String
+  phone             String?
+  address           String?
+  imageUrl          String?         // supplier photo
+  openingBalancePkr Decimal         @default(0) @db.Decimal(10, 2)
+  notes             String?
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  entries           SupplierEntry[]
+  products          Product[]
+
+  @@index([tenantId])
+  @@index([name])
+}
+
+model SupplierEntry {
+  id          String            @id @default(cuid())
+  tenantId    String
+  supplierId  String
+  supplier    Supplier          @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  type        SupplierEntryType @default(PURCHASE)
+  amountPkr   Decimal           @db.Decimal(10, 2)
+  // Bill details (purchases only)
+  productId   String?
+  productName String?
+  quantity    Int?
+  unitCost    Decimal?          @db.Decimal(10, 2)
+  paidAmount  Decimal           @default(0) @db.Decimal(10, 2) // paid at bill time
+  note        String?
+  createdAt   DateTime          @default(now())
+
+  @@index([tenantId])
+  @@index([supplierId])
+  @@index([createdAt])
+}
