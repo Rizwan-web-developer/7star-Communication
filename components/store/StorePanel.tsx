@@ -420,6 +420,14 @@ export function StorePanel({ businessId, section }: { businessId: string; sectio
       flash("err", "Prescription product in cart: enter doctor / prescription details first.");
       return;
     }
+    const rawPhone = customerPhone.replace(/[^\d]/g, "");
+    let normalizedPhone = rawPhone;
+    if (normalizedPhone.startsWith("0")) normalizedPhone = "92" + normalizedPhone.slice(1);
+    else if (normalizedPhone && !normalizedPhone.startsWith("92")) normalizedPhone = "92" + normalizedPhone;
+    if (!normalizedPhone || normalizedPhone.length < 10) {
+      flash("err", "Customer phone number is required (with country code 92).");
+      return;
+    }
     setCheckingOut(true);
 
     // Group serialized lines by product -> serialItemIds; keep bulk lines as quantity
@@ -443,7 +451,7 @@ export function StorePanel({ businessId, section }: { businessId: string; sectio
       items,
       paymentMethod: payMethod,
       customerName: customer,
-      customerPhone,
+      customerPhone: normalizedPhone,
       discountPkr: cartDiscount,
       downPaymentPkr: cartDownPayment,
       prescriptionNote: rxNote.trim() || null,
@@ -488,6 +496,7 @@ export function StorePanel({ businessId, section }: { businessId: string; sectio
           id: clientRef,
           invoiceNumber: `OFFLINE-${clientRef.slice(-6).toUpperCase()}`,
           customerName: sale.customerName,
+          customerPhone: normalizedPhone,
           subtotalPkr: cartTotal,
           discountPkr: cartDiscount,
           totalAmount: cartGrand,
@@ -521,6 +530,7 @@ export function StorePanel({ businessId, section }: { businessId: string; sectio
         setDownPaymentInput("");
         setRxNote("");
         flash("ok", `Saved offline (${queue.length} pending). It will sync automatically when online.`);
+        triggerPrint(localInvoice);
       } else {
         flash("err", e instanceof Error ? e.message : "Checkout failed");
       }
@@ -771,7 +781,10 @@ export function StorePanel({ businessId, section }: { businessId: string; sectio
               <div className="mt-4 space-y-2 border-t border-line pt-3">
                 <div className="grid grid-cols-2 gap-2">
                   <input value={customer} onChange={(e) => setCustomer(e.target.value)} placeholder="Customer name" className="focus-ring h-9 w-full rounded-lg border border-line bg-surface-2 px-3 text-sm text-foreground placeholder:text-muted" />
-                  <input value={customerPhone} onChange={(e) => setCustomerPhone(e.target.value)} placeholder="Phone (optional)" className="focus-ring h-9 w-full rounded-lg border border-line bg-surface-2 px-3 text-sm text-foreground placeholder:text-muted" />
+                  <div className="flex h-9 w-full overflow-hidden rounded-lg border border-line bg-surface-2 text-sm">
+                    <span className="inline-flex items-center border-r border-line px-2.5 text-muted">+92</span>
+                    <input value={customerPhone} onChange={(e) => setCustomerPhone(e.target.value.replace(/[^\d]/g, "").replace(/^0+/, "").slice(0, 10))} placeholder="3XXXXXXXXX" required className="focus-ring h-full w-full bg-transparent px-3 text-foreground placeholder:text-muted" />
+                  </div>
                 </div>
                 <select value={payMethod} onChange={(e) => setPayMethod(e.target.value)} className="focus-ring h-9 w-full rounded-lg border border-line bg-surface-2 px-3 text-sm text-foreground">
                   <option value="CASH">Cash</option>
