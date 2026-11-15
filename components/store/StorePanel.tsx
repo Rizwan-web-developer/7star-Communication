@@ -271,7 +271,7 @@ export function StorePanel({ businessId, section }: { businessId: string; sectio
   const cartTotal = cart.reduce((s, l) => s + l.product.sellingPrice * l.quantity, 0);
   const cartDiscount = features.discounts ? Math.min(Math.max(0, Number(discountInput) || 0), cartTotal) : 0;
   const cartGrand = Math.max(0, cartTotal - cartDiscount);
-  const cartDownPayment = features.installments ? Math.min(Math.max(0, Number(downPaymentInput) || 0), cartGrand) : 0;
+  const cartDownPayment = Math.min(Math.max(0, Number(downPaymentInput) || 0), cartGrand);
   const cartDue = Math.max(0, cartGrand - cartDownPayment);
   const cartHasRx = cart.some((l) => l.product.prescriptionRequired);
 
@@ -763,12 +763,10 @@ export function StorePanel({ businessId, section }: { businessId: string; sectio
                     <input type="number" min="0" step="0.01" value={discountInput} onChange={(e) => setDiscountInput(e.target.value)} placeholder="0" className="focus-ring h-7 w-28 rounded-md border border-line bg-surface px-2 text-right text-sm tabular-nums text-foreground" />
                   </label>
                 ) : null}
-                {features.installments ? (
-                  <label className="flex items-center justify-between gap-2 rounded-lg border border-line bg-surface-2 px-3 py-1.5 text-sm">
-                    <span className="text-muted">Down payment</span>
-                    <input type="number" min="0" step="0.01" value={downPaymentInput} onChange={(e) => setDownPaymentInput(e.target.value)} placeholder="0" className="focus-ring h-7 w-28 rounded-md border border-line bg-surface px-2 text-right text-sm tabular-nums text-foreground" />
-                  </label>
-                ) : null}
+                <label className="flex items-center justify-between gap-2 rounded-lg border border-line bg-surface-2 px-3 py-1.5 text-sm">
+                  <span className="text-muted">Paid amount</span>
+                  <input type="number" min="0" step="0.01" value={downPaymentInput} onChange={(e) => setDownPaymentInput(e.target.value)} placeholder="0" className="focus-ring h-7 w-28 rounded-md border border-line bg-surface px-2 text-right text-sm tabular-nums text-foreground" />
+                </label>
                 {features.prescription && cartHasRx ? (
                   <div className="rounded-lg border border-amber-500/30 bg-amber-500/[0.07] p-2">
                     <label className="mb-1 block text-[11px] font-semibold text-amber-800 dark:text-amber-300">Prescription details (required for Rx items)</label>
@@ -776,22 +774,21 @@ export function StorePanel({ businessId, section }: { businessId: string; sectio
                   </div>
                 ) : null}
                 <div className="space-y-1 rounded-lg border border-line bg-surface-2 px-3 py-2 text-sm">
-                  {cartDiscount > 0 || cartDownPayment > 0 ? (
-                    <div className="flex items-center justify-between text-muted"><span>Subtotal</span><span className="tabular-nums">{formatCurrency(cartTotal)}</span></div>
-                  ) : null}
                   {cartDiscount > 0 ? (
-                    <div className="flex items-center justify-between text-emerald-700 dark:text-emerald-300"><span>Discount</span><span className="tabular-nums">− {formatCurrency(cartDiscount)}</span></div>
-                  ) : null}
-                  <div className="flex items-center justify-between">
-                    <span className="text-muted">{cartDownPayment > 0 ? "Total" : "Grand total"}</span>
-                    <span className="text-lg font-semibold tabular-nums text-foreground">{formatCurrency(cartGrand)}</span>
-                  </div>
-                  {cartDownPayment > 0 ? (
                     <>
-                      <div className="flex items-center justify-between text-muted"><span>Down payment</span><span className="tabular-nums">{formatCurrency(cartDownPayment)}</span></div>
-                      <div className="flex items-center justify-between font-semibold text-amber-700 dark:text-amber-300"><span>Balance due</span><span className="tabular-nums">{formatCurrency(cartDue)}</span></div>
+                      <div className="flex items-center justify-between text-muted"><span>Subtotal</span><span className="tabular-nums">{formatCurrency(cartTotal)}</span></div>
+                      <div className="flex items-center justify-between text-emerald-700 dark:text-emerald-300"><span>Discount</span><span className="tabular-nums">- {formatCurrency(cartDiscount)}</span></div>
                     </>
                   ) : null}
+                  <div className="flex items-center justify-between">
+                    <span className="text-muted">Total</span>
+                    <span className="text-lg font-semibold tabular-nums text-foreground">{formatCurrency(cartGrand)}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-muted"><span>Paid amount</span><span className="tabular-nums">{formatCurrency(cartDownPayment)}</span></div>
+                  <div className={cn("flex items-center justify-between font-semibold", cartDue > 0 ? "text-amber-700 dark:text-amber-300" : "text-emerald-700 dark:text-emerald-300")}>
+                    <span>Due</span>
+                    <span className="tabular-nums">{cartDue > 0 ? formatCurrency(cartDue) : "Paid in full"}</span>
+                  </div>
                 </div>
                 <button type="button" onClick={() => void checkout()} disabled={cart.length === 0 || checkingOut} className="focus-ring flex w-full items-center justify-center gap-2 rounded-lg bg-accent px-4 py-2.5 text-sm font-semibold text-accent-fg disabled:opacity-50">
                   {checkingOut ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />} Checkout &amp; deduct stock
@@ -988,7 +985,7 @@ export function StorePanel({ businessId, section }: { businessId: string; sectio
                       <td className="px-3 py-3 text-muted">{inv.items.map((it) => `${it.product?.name || "Item"} x${it.quantity}${it.serialOrImei ? ` [${it.serialOrImei}]` : ""}`).join(", ")}</td>
                       <td className="px-4 py-3 text-right font-semibold tabular-nums text-foreground">
                         {formatCurrency(inv.totalAmount)}
-                        {(inv.duePkr ?? 0) > 0 ? <span className="block text-[11px] font-medium text-amber-700 dark:text-amber-300">Due {formatCurrency(inv.duePkr || 0)}</span> : null}
+                        <span className={cn("block text-[11px] font-medium", (inv.duePkr ?? 0) > 0 ? "text-amber-700 dark:text-amber-300" : "text-emerald-700 dark:text-emerald-300")}>Paid {formatCurrency(inv.downPaymentPkr || 0)} · Due {formatCurrency(inv.duePkr || 0)}</span>
                         {(inv.discountPkr ?? 0) > 0 ? <span className="block text-[11px] font-normal text-emerald-700 dark:text-emerald-300">Disc {formatCurrency(inv.discountPkr || 0)}</span> : null}
                       </td>
                     </tr>
@@ -1287,12 +1284,8 @@ export function StorePanel({ businessId, section }: { businessId: string; sectio
                 <span>Grand Total</span>
                 <span>{formatCurrency(printInvoice.totalAmount)}</span>
               </div>
-              {(printInvoice.downPaymentPkr ?? 0) > 0 ? (
-                <>
-                  <div style={{ display: "flex", justifyContent: "space-between", marginTop: 2 }}><span>Down payment</span><span>{formatCurrency(printInvoice.downPaymentPkr || 0)}</span></div>
-                  <div style={{ display: "flex", justifyContent: "space-between", fontWeight: 700 }}><span>Balance due</span><span>{formatCurrency(printInvoice.duePkr || 0)}</span></div>
-                </>
-              ) : null}
+              <div style={{ display: "flex", justifyContent: "space-between", marginTop: 2 }}><span>Paid</span><span>{formatCurrency(printInvoice.downPaymentPkr || 0)}</span></div>
+              <div style={{ display: "flex", justifyContent: "space-between", fontWeight: 700 }}><span>Due</span><span>{formatCurrency(printInvoice.duePkr || 0)}</span></div>
               {printInvoice.prescriptionNote ? <div style={{ marginTop: 4, fontSize: 9 }}>Rx: {printInvoice.prescriptionNote}</div> : null}
             </div>
             <div style={{ textAlign: "center", marginTop: 10, fontSize: 10, borderTop: "1px dashed #000", paddingTop: 6 }}>Thank you for your purchase</div>

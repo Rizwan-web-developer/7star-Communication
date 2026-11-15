@@ -59,6 +59,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     const paymentMethod = PAYMENT_METHODS.has(paymentMethodRaw) ? paymentMethodRaw : "CASH";
     const customerName = String(body?.customerName ?? "").trim().slice(0, 120) || null;
     const customerPhone = String(body?.customerPhone ?? "").trim().slice(0, 40) || null;
+    const providedCustomerId = String(body?.customerId ?? "").trim() || null;
     const prescriptionNote = String(body?.prescriptionNote ?? "").trim().slice(0, 300) || null;
     const clientRef = String(body?.clientRef ?? "").trim().slice(0, 80) || null;
     clientRefForRetry = clientRef;
@@ -68,9 +69,6 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     if (rawItems.length === 0) return NextResponse.json({ message: "Cart is empty." }, { status: 400 });
     if (discountPkr > 0 && !flags.DISCOUNTS) {
       return NextResponse.json({ message: "Discounts are not enabled for this business. Contact the platform admin." }, { status: 403 });
-    }
-    if (downPaymentInput > 0 && !flags.INSTALLMENTS) {
-      return NextResponse.json({ message: "Installment sales are not enabled for this business. Contact the platform admin." }, { status: 403 });
     }
 
     // Idempotency for offline/replayed checkouts.
@@ -215,6 +213,26 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     const invoiceNumber = `INV-${Date.now().toString().slice(-8)}-${Math.floor(Math.random() * 900 + 100)}`;
 
     const invoice = await prisma.$transaction(async (tx: any) => {
+      let customerId: string | null = providedCustomerId;
+      if (customerId) {
+        const found = await tx.customer.findFirst({ where: { id: customerId, tenantId }, select: { id: true } });
+        customerId = found?.id ?? null;
+      }
+      if (!customerId && customerName) {
+        const byPhone = customerPhone
+          ? await tx.customer.findFirst({ where: { tenantId, phone: customerPhone }, select: { id: true } })
+          : null;
+        const byName = !byPhone ? await tx.customer.findFirst({ where: { tenantId, name: customerName }, select: { id: true } }) : null;
+        const existing = byPhone || byName;
+        if (existing) {
+          customerId = existing.id;
+          await tx.customer.update({ where: { id: existing.id }, data: { name: customerName, phone: customerPhone } }).catch(() => {});
+        } else {
+          const created = await tx.customer.create({ data: { tenantId, name: customerName, phone: customerPhone } });
+          customerId = created.id;
+        }
+      }
+
       const itemCreates: any[] = [];
 
       for (const line of plan) {
@@ -283,6 +301,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       return tx.invoice.create({
         data: {
           tenantId,
+          customerId,
           invoiceNumber,
           customerName,
           customerPhone,

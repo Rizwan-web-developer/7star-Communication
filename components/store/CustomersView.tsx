@@ -110,11 +110,8 @@ export function CustomersView({ businessId }: { businessId: string }) {
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="flex items-center gap-2 text-[22px] font-semibold tracking-tight text-foreground"><User className="h-5 w-5 text-accent" /> Customers</h1>
-          <p className="mt-0.5 text-sm text-muted">Add and manage customers for cash and credit (udhar) sales.</p>
+          <p className="mt-0.5 text-sm text-muted">View and manage customers. New customers are added from POS sales.</p>
         </div>
-        <button type="button" onClick={openAdd} className="focus-ring inline-flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-accent-fg">
-          <Plus className="h-4 w-4" /> Add customer
-        </button>
       </div>
 
       {error ? <div className="rounded-lg border border-rose-500/25 bg-rose-500/10 px-3 py-2 text-sm text-rose-700 dark:text-rose-300">{error}</div> : null}
@@ -129,7 +126,7 @@ export function CustomersView({ businessId }: { businessId: string }) {
         {loading ? (
           <div className="flex items-center justify-center gap-2 px-4 py-12 text-sm text-muted"><Loader2 className="h-4 w-4 animate-spin" /> Loading customers…</div>
         ) : filtered.length === 0 ? (
-          <p className="px-4 py-12 text-center text-sm text-muted">No customers found. Add your first customer.</p>
+          <p className="px-4 py-12 text-center text-sm text-muted">No customers found. Customers will appear here after POS sales.</p>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full min-w-[700px] text-left text-sm">
@@ -139,7 +136,7 @@ export function CustomersView({ businessId }: { businessId: string }) {
                   <th className="px-3 py-2.5">Phone</th>
                   <th className="px-3 py-2.5">Address</th>
                   <th className="px-3 py-2.5 text-right">Invoices</th>
-                  <th className="px-3 py-2.5 text-right">Due (Udhar)</th>
+                  <th className="px-3 py-2.5 text-right">Due</th>
                   <th className="px-4 py-2.5 text-right">Actions</th>
                 </tr>
               </thead>
