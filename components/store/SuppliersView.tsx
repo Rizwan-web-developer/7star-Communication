@@ -63,6 +63,9 @@ type Supplier = {
 type SimpleProduct = {
   id: string;
   name: string;
+  category?: string | null;
+  brand?: string | null;
+  supplierName?: string | null;
   stockQuantity: number;
   sellingPrice: number;
   trackingType?: "QUANTITY_ONLY" | "SERIAL_OR_IMEI";
@@ -181,8 +184,10 @@ export function SuppliersView({ businessId }: { businessId: string }) {
   const productMatches = useMemo(() => {
     const t = productSearch.trim().toLowerCase();
     const base = allProducts;
-    if (!t) return base.slice(0, 6);
-    return base.filter((p) => p.name.toLowerCase().includes(t)).slice(0, 8);
+    if (!t) return base.slice(0, 20);
+    return base.filter((p) =>
+      [p.name, (p as any).category, (p as any).brand, (p as any).supplierName].some((v) => String(v || "").toLowerCase().includes(t))
+    ).slice(0, 30);
   }, [allProducts, productSearch]);
 
   const chosenProduct = allProducts.find((p) => p.id === productId) ?? null;
@@ -492,13 +497,16 @@ export function SuppliersView({ businessId }: { businessId: string }) {
                           </div>
                           <div className="mt-2 max-h-48 overflow-y-auto rounded-lg border border-line">
                             {productMatches.length === 0 ? (
-                              <p className="px-3 py-4 text-center text-xs text-muted">No product found. Use &quot;New product&quot; to add it first.</p>
+                              <p className="px-3 py-4 text-center text-xs text-muted">No product found. Try a different search, or use &quot;New product&quot; to add it.</p>
                             ) : (
                               <ul className="divide-y divide-line">
                                 {productMatches.map((p) => (
                                   <li key={p.id}>
                                     <button type="button" onClick={() => { setProductId(p.id); setProductSearch(""); setSellPriceEdit(String(p.sellingPrice ?? "")); setSerialText(""); }} className="focus-ring flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm hover:bg-surface-2">
-                                      <span className="min-w-0 truncate text-foreground">{p.name}{p.trackingType === "SERIAL_OR_IMEI" ? <span className="ml-1 text-[11px] text-accent">(Serial/IMEI)</span> : null}</span>
+                                      <span className="min-w-0">
+                                        <span className="block truncate text-foreground">{p.name}{p.trackingType === "SERIAL_OR_IMEI" ? <span className="ml-1 text-[11px] text-accent">(Serial/IMEI)</span> : null}</span>
+                                        <span className="block truncate text-[11px] text-muted">{[p.brand, p.category].filter(Boolean).join(" · ") || "—"}</span>
+                                      </span>
                                       <span className="shrink-0 text-xs text-muted">Stock {p.stockQuantity}</span>
                                     </button>
                                   </li>
