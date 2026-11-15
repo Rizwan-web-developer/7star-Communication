@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useCallback, useEffect, useMemo, useState, type ChangeEvent } from "react";
 import {
@@ -7,8 +7,10 @@ import {
   CheckCircle2,
   ImagePlus,
   Loader2,
+  MessageCircle,
   Pencil,
   Plus,
+  Printer,
   Search,
   Trash2,
   Truck,
@@ -18,6 +20,7 @@ import {
 
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { cn, formatCurrency } from "@/lib/utils";
+import { normalizeWaPhone } from "@/lib/whatsapp";
 
 type LedgerEntry = {
   id: string;
@@ -141,6 +144,19 @@ export function SuppliersView({ businessId }: { businessId: string }) {
   const [delSupplier, setDelSupplier] = useState<Supplier | null>(null);
   const [delEntry, setDelEntry] = useState<LedgerEntry | null>(null);
   const [delBusy, setDelBusy] = useState(false);
+
+  const [stockSlip, setStockSlip] = useState<{
+    supplierName: string;
+    supplierPhone?: string | null;
+    productName: string;
+    quantity: number;
+    unitCost: number;
+    total: number;
+    paidNow: number;
+    remaining: number;
+    note?: string | null;
+    createdAt: string;
+  } | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -299,27 +315,46 @@ export function SuppliersView({ businessId }: { businessId: string }) {
 
     setBillBusy(true);
     try {
+      const payload: any = {
+        type: "PURCHASE",
+        productId: mode === "existing" ? productId : undefined,
+        newProduct: mode === "new"
+          ? { name: newName, sellingPrice: Number(newSellingPrice || 0) }
+          : undefined,
+        sellingPrice: mode === "existing" && sellPriceEdit !== "" ? Number(sellPriceEdit) : undefined,
+        quantity: qty,
+        unitCost: cost,
+        serials: isSerializedEntry ? serials : undefined,
+        paidNow: paid,
+        note: billNote,
+      };
+      const productNameForSlip = mode === "existing" ? (chosenProduct?.name || "Product") : newName.trim();
       const res = await fetch(`/api/businesses/${businessId}/suppliers/${selected.id}/entries`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          type: "PURCHASE",
-          productId: mode === "existing" ? productId : undefined,
-          newProduct: mode === "new"
-            ? { name: newName, sellingPrice: Number(newSellingPrice || 0) }
-            : undefined,
-          sellingPrice: mode === "existing" && sellPriceEdit !== "" ? Number(sellPriceEdit) : undefined,
-          quantity: qty,
-          unitCost: cost,
-          serials: isSerializedEntry ? serials : undefined,
-          paidNow: paid,
-          note: billNote,
-        }),
+        body: JSON.stringify(payload),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.message || "Failed to save the stock entry.");
+      const savedProductName = String((data.product as any)?.name || (data.entry as any)?.productName || productNameForSlip || "Product");
+      const savedQty = Number((data.entry as any)?.quantity ?? qty);
+      const savedUnit = Number((data.entry as any)?.unitCost ?? cost);
+      const savedTotal = Number((data.entry as any)?.amountPkr ?? total);
+      const savedPaid = Number((data.entry as any)?.paidAmount ?? paid);
+      setStockSlip({
+        supplierName: selected.name,
+        supplierPhone: selected.phone ?? null,
+        productName: savedProductName,
+        quantity: savedQty,
+        unitCost: savedUnit,
+        total: savedTotal,
+        paidNow: savedPaid,
+        remaining: Math.max(0, savedTotal - savedPaid),
+        note: billNote.trim() || null,
+        createdAt: new Date().toISOString(),
+      });
       resetBillForm();
-      setNotice("Stock entry saved. Purchases, stock and totals are updated.");
+      setNotice("Stock entry saved. Slip is ready to print or send on WhatsApp.");
       await load();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to save the stock entry.");
@@ -417,7 +452,7 @@ export function SuppliersView({ businessId }: { businessId: string }) {
       {notice ? <div className="rounded-lg border border-emerald-500/25 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-700 dark:text-emerald-300">{notice}</div> : null}
 
       {loading ? (
-        <div className="flex items-center justify-center gap-2 rounded-xl border border-line bg-surface px-4 py-12 text-sm text-muted"><Loader2 className="h-4 w-4 animate-spin" /> Loading suppliers…</div>
+        <div className="flex items-center justify-center gap-2 rounded-xl border border-line bg-surface px-4 py-12 text-sm text-muted"><Loader2 className="h-4 w-4 animate-spin" /> Loading suppliersâ€¦</div>
       ) : suppliers.length === 0 ? (
         <p className="rounded-xl border border-line bg-surface px-4 py-12 text-center text-sm text-muted">No suppliers yet. Add your first supplier to start recording purchases.</p>
       ) : (
@@ -430,7 +465,7 @@ export function SuppliersView({ businessId }: { businessId: string }) {
                     <SupplierAvatar supplier={s} size={40} />
                     <span className="min-w-0 flex-1">
                       <span className="block truncate font-medium text-foreground">{s.name}</span>
-                      <span className="block text-xs text-muted">{s.products.length} products · {s.phone || "No phone"}</span>
+                      <span className="block text-xs text-muted">{s.products.length} products Â· {s.phone || "No phone"}</span>
                     </span>
                     <span className={cn("shrink-0 text-sm font-semibold tabular-nums", s.balancePkr > 0 ? "text-amber-700 dark:text-amber-300" : "text-emerald-700 dark:text-emerald-300")}>{formatCurrency(s.balancePkr)}</span>
                   </button>
@@ -447,7 +482,7 @@ export function SuppliersView({ businessId }: { businessId: string }) {
                     <SupplierAvatar supplier={selected} size={56} />
                     <div>
                       <h2 className="text-base font-semibold text-foreground">{selected.name}</h2>
-                      <p className="text-xs text-muted">{[selected.phone, selected.address].filter(Boolean).join(" · ") || "No contact details"}</p>
+                      <p className="text-xs text-muted">{[selected.phone, selected.address].filter(Boolean).join(" Â· ") || "No contact details"}</p>
                     </div>
                   </div>
                   <div className="flex gap-2">
@@ -483,8 +518,8 @@ export function SuppliersView({ businessId }: { businessId: string }) {
                           <div className="min-w-0">
                             <p className="truncate text-sm font-medium text-foreground">{chosenProduct.name}</p>
                             <p className="text-xs text-muted">
-                              In stock: {chosenProduct.stockQuantity} · Sells at {formatCurrency(chosenProduct.sellingPrice)}
-                              {chosenProduct.trackingType === "SERIAL_OR_IMEI" ? " · Serial/IMEI product" : ""}
+                              In stock: {chosenProduct.stockQuantity} Â· Sells at {formatCurrency(chosenProduct.sellingPrice)}
+                              {chosenProduct.trackingType === "SERIAL_OR_IMEI" ? " Â· Serial/IMEI product" : ""}
                             </p>
                           </div>
                           <button type="button" onClick={() => { setProductId(""); setProductSearch(""); setSellPriceEdit(""); setSerialText(""); }} className="focus-ring rounded-md p-1 text-muted hover:text-foreground" aria-label="Clear selected product"><X className="h-4 w-4" /></button>
@@ -493,7 +528,7 @@ export function SuppliersView({ businessId }: { businessId: string }) {
                         <div>
                           <div className="relative">
                             <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
-                            <input value={productSearch} onChange={(e) => setProductSearch(e.target.value)} placeholder="Search a product by name…" className="focus-ring h-10 w-full rounded-lg border border-line bg-surface-2 pl-8 pr-3 text-sm text-foreground placeholder:text-muted" />
+                            <input value={productSearch} onChange={(e) => setProductSearch(e.target.value)} placeholder="Search a product by nameâ€¦" className="focus-ring h-10 w-full rounded-lg border border-line bg-surface-2 pl-8 pr-3 text-sm text-foreground placeholder:text-muted" />
                           </div>
                           <div className="mt-2 max-h-48 overflow-y-auto rounded-lg border border-line">
                             {productMatches.length === 0 ? (
@@ -505,7 +540,7 @@ export function SuppliersView({ businessId }: { businessId: string }) {
                                     <button type="button" onClick={() => { setProductId(p.id); setProductSearch(""); setSellPriceEdit(String(p.sellingPrice ?? "")); setSerialText(""); }} className="focus-ring flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm hover:bg-surface-2">
                                       <span className="min-w-0">
                                         <span className="block truncate text-foreground">{p.name}{p.trackingType === "SERIAL_OR_IMEI" ? <span className="ml-1 text-[11px] text-accent">(Serial/IMEI)</span> : null}</span>
-                                        <span className="block truncate text-[11px] text-muted">{[p.brand, p.category].filter(Boolean).join(" · ") || "—"}</span>
+                                        <span className="block truncate text-[11px] text-muted">{[p.brand, p.category].filter(Boolean).join(" Â· ") || "â€”"}</span>
                                       </span>
                                       <span className="shrink-0 text-xs text-muted">Stock {p.stockQuantity}</span>
                                     </button>
@@ -524,7 +559,7 @@ export function SuppliersView({ businessId }: { businessId: string }) {
                         <input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="e.g. iPhone 15 Pro" className="focus-ring h-10 w-full rounded-lg border border-line bg-surface-2 px-3 text-sm text-foreground placeholder:text-muted" />
                       </div>
                       <div>
-                        <label className="mb-1 block text-xs font-medium text-muted">Selling price ($) *</label>
+                        <label className="mb-1 block text-xs font-medium text-muted">Selling price (PKR) *</label>
                         <input type="number" min="0" step="0.01" value={newSellingPrice} onChange={(e) => setNewSellingPrice(e.target.value)} placeholder="How much you will sell it for" className="focus-ring h-10 w-full rounded-lg border border-line bg-surface-2 px-3 text-sm tabular-nums text-foreground placeholder:text-muted" />
                       </div>
                       <div className="flex items-end">
@@ -541,7 +576,7 @@ export function SuppliersView({ businessId }: { businessId: string }) {
                     <div>
                       <label className="mb-1 block text-xs font-medium text-muted">Serial / IMEI numbers * (one per line)</label>
                       <textarea value={serialText} onChange={(e) => setSerialText(e.target.value)} rows={3} placeholder="Enter each Serial/IMEI on a new line" className="focus-ring w-full rounded-lg border border-line bg-surface-2 px-3 py-2 text-sm text-foreground placeholder:text-muted" />
-                      <p className="mt-1 text-xs text-muted"><span className="font-semibold tabular-nums text-foreground">{serials.length}</span> item(s) — quantity is set from serial count.</p>
+                      <p className="mt-1 text-xs text-muted"><span className="font-semibold tabular-nums text-foreground">{serials.length}</span> item(s) â€” quantity is set from serial count.</p>
                     </div>
                   ) : null}
 
@@ -558,19 +593,19 @@ export function SuppliersView({ businessId }: { businessId: string }) {
                       </div>
                     )}
                     <div>
-                      <label className="mb-1 block text-xs font-medium text-muted">Purchase price / unit ($) *</label>
+                      <label className="mb-1 block text-xs font-medium text-muted">Purchase price / unit (PKR) *</label>
                       <input type="number" min="0" step="0.01" value={unitCost} onChange={(e) => setUnitCost(e.target.value)} placeholder="What you pay per item" className="focus-ring h-10 w-full rounded-lg border border-line bg-surface-2 px-3 text-sm tabular-nums text-foreground placeholder:text-muted" />
                     </div>
                     <div>
                       <label className="mb-1 block text-xs font-medium text-muted">Total stock amount</label>
                       <div className="flex h-10 items-center justify-between rounded-lg border border-line bg-surface-2 px-3 text-sm">
-                        <span className="text-muted">{effectiveQty} × {formatCurrency(Number(unitCost) || 0)}</span>
+                        <span className="text-muted">{effectiveQty} Ã— {formatCurrency(Number(unitCost) || 0)}</span>
                         <span className="font-semibold tabular-nums text-foreground">{formatCurrency(total)}</span>
                       </div>
                     </div>
                     {mode === "existing" ? (
                       <div>
-                        <label className="mb-1 block text-xs font-medium text-muted">Selling price ($)</label>
+                        <label className="mb-1 block text-xs font-medium text-muted">Selling price (PKR)</label>
                         <input type="number" min="0" step="0.01" value={sellPriceEdit} onChange={(e) => setSellPriceEdit(e.target.value)} placeholder="Update selling price" className="focus-ring h-10 w-full rounded-lg border border-line bg-surface-2 px-3 text-sm tabular-nums text-foreground placeholder:text-muted" />
                       </div>
                     ) : null}
@@ -585,15 +620,15 @@ export function SuppliersView({ businessId }: { businessId: string }) {
                     <p className="mt-0.5 text-xs text-muted">Enter how much you paid now. If you pay the full amount it will be marked Paid. If you pay less, the remaining amount is saved.</p>
                     <div className="mt-2 grid gap-3 sm:grid-cols-[220px,1fr] sm:items-end">
                       <div>
-                        <label className="mb-1 block text-xs font-medium text-muted">Paid now ($)</label>
+                        <label className="mb-1 block text-xs font-medium text-muted">Paid now (PKR)</label>
                         <input type="number" min="0" step="0.01" value={paidNow} onChange={(e) => setPaidNow(e.target.value)} placeholder="0" className="focus-ring h-10 w-full rounded-lg border border-line bg-surface px-3 text-sm tabular-nums text-foreground placeholder:text-muted" />
                       </div>
                       <div className="text-sm">
                         {total > 0 ? (
                           Number(paidNow || 0) >= total ? (
-                            <p className="font-medium text-emerald-700 dark:text-emerald-300">Full amount paid — this entry will be marked Paid.</p>
+                            <p className="font-medium text-emerald-700 dark:text-emerald-300">Full amount paid â€” this entry will be marked Paid.</p>
                           ) : (
-                            <p className="text-muted">Paid <b className="text-foreground">{formatCurrency(Number(paidNow) || 0)}</b> · Remaining <b className="font-semibold text-amber-700 dark:text-amber-300">{formatCurrency(Math.max(0, total - (Number(paidNow) || 0)))}</b></p>
+                            <p className="text-muted">Paid <b className="text-foreground">{formatCurrency(Number(paidNow) || 0)}</b> Â· Remaining <b className="font-semibold text-amber-700 dark:text-amber-300">{formatCurrency(Math.max(0, total - (Number(paidNow) || 0)))}</b></p>
                           )
                         ) : (
                           <p className="text-muted">Enter quantity and purchase price to calculate the total.</p>
@@ -614,7 +649,7 @@ export function SuppliersView({ businessId }: { businessId: string }) {
                 <h3 className="flex items-center gap-2 text-sm font-semibold text-foreground"><Wallet className="h-4 w-4 text-accent" /> Record a payment</h3>
                 <p className="text-xs text-muted">Use this to pay some or all of the remaining amount later.</p>
                 <div className="mt-3 flex flex-wrap items-end gap-2">
-                  <label className="text-xs font-medium text-muted"><span className="mb-1 block">Amount ($)</span>
+                  <label className="text-xs font-medium text-muted"><span className="mb-1 block">Amount (PKR)</span>
                     <input type="number" min="0" step="0.01" value={payAmount} onChange={(e) => setPayAmount(e.target.value)} placeholder="0" className="focus-ring h-10 w-32 rounded-lg border border-line bg-surface-2 px-3 text-sm tabular-nums text-foreground placeholder:text-muted" />
                   </label>
                   <label className="min-w-[180px] flex-1 text-xs font-medium text-muted"><span className="mb-1 block">Note (optional)</span>
@@ -641,9 +676,9 @@ export function SuppliersView({ businessId }: { businessId: string }) {
                           {entry.isPaid ? <CheckCircle2 className="h-4 w-4" /> : <ArrowUpRight className="h-4 w-4" />}
                         </span>
                         <div className="min-w-0 flex-1">
-                          <p className="truncate text-sm font-medium text-foreground">{entry.productName || "Purchase"}{entry.note ? <span className="font-normal text-muted"> · {entry.note}</span> : null}</p>
+                          <p className="truncate text-sm font-medium text-foreground">{entry.productName || "Purchase"}{entry.note ? <span className="font-normal text-muted"> Â· {entry.note}</span> : null}</p>
                           <p className="text-[11px] text-muted">
-                            {entry.quantity ?? 0} x {formatCurrency(entry.unitCost ?? 0)} · {new Date(entry.createdAt).toLocaleString("en-US")}
+                            {entry.quantity ?? 0} x {formatCurrency(entry.unitCost ?? 0)} Â· {new Date(entry.createdAt).toLocaleString("en-US")}
                           </p>
                         </div>
                         <div className="text-right">
@@ -651,7 +686,7 @@ export function SuppliersView({ businessId }: { businessId: string }) {
                           {entry.isPaid ? (
                             <span className="inline-flex rounded-full bg-emerald-500/10 px-2 py-0.5 text-[11px] font-medium text-emerald-700 dark:text-emerald-300">Paid</span>
                           ) : (
-                            <p className="text-[11px] text-muted">Paid {formatCurrency(entry.paidAmount)} · Remaining <b className="font-semibold text-amber-700 dark:text-amber-300">{formatCurrency(entry.remainingPkr)}</b></p>
+                            <p className="text-[11px] text-muted">Paid {formatCurrency(entry.paidAmount)} Â· Remaining <b className="font-semibold text-amber-700 dark:text-amber-300">{formatCurrency(entry.remainingPkr)}</b></p>
                           )}
                         </div>
                         <button type="button" onClick={() => setDelEntry(entry)} className="focus-ring rounded-md p-1 text-muted hover:text-rose-600" aria-label="Delete purchase bill"><Trash2 className="h-3.5 w-3.5" /></button>
@@ -671,7 +706,7 @@ export function SuppliersView({ businessId }: { businessId: string }) {
                       <li key={entry.id} className="flex items-center gap-3 px-4 py-2.5">
                         <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"><ArrowDownLeft className="h-4 w-4" /></span>
                         <div className="min-w-0 flex-1">
-                          <p className="text-sm font-medium text-foreground">Payment{entry.note ? <span className="font-normal text-muted"> · {entry.note}</span> : null}</p>
+                          <p className="text-sm font-medium text-foreground">Payment{entry.note ? <span className="font-normal text-muted"> Â· {entry.note}</span> : null}</p>
                           <p className="text-[11px] text-muted">{new Date(entry.createdAt).toLocaleString("en-US")}</p>
                         </div>
                         <span className="text-sm font-semibold tabular-nums text-emerald-700 dark:text-emerald-300">{formatCurrency(entry.amountPkr)}</span>
@@ -706,7 +741,7 @@ export function SuppliersView({ businessId }: { businessId: string }) {
                                 {p.imageUrl ? <img src={p.imageUrl} alt="" className="h-8 w-8 rounded-md border border-line object-cover" /> : null}
                                 <div className="min-w-0">
                                   <p className="truncate font-medium text-foreground">{p.name}</p>
-                                  <p className="text-[11px] text-muted">Cost {formatCurrency(p.costPrice)} · Sells at {formatCurrency(p.sellingPrice)}</p>
+                                  <p className="text-[11px] text-muted">Cost {formatCurrency(p.costPrice)} Â· Sells at {formatCurrency(p.sellingPrice)}</p>
                                 </div>
                               </div>
                             </td>
@@ -841,8 +876,116 @@ export function SuppliersView({ businessId }: { businessId: string }) {
         tone="danger"
         loading={delBusy}
       />
+
+      {stockSlip ? (
+        <div className="fixed inset-0 z-[130] flex items-end justify-center sm:items-center" role="dialog" aria-modal="true" aria-label="Stock purchase slip">
+          <div className="absolute inset-0 bg-overlay/65 backdrop-blur-sm" onMouseDown={() => setStockSlip(null)} aria-hidden />
+          <div className="relative z-10 w-full max-w-lg rounded-t-2xl border border-line bg-surface p-5 shadow-panel sm:rounded-2xl">
+            <div className="flex items-start justify-between gap-2">
+              <div>
+                <h2 className="text-base font-semibold text-foreground">Stock purchase slip</h2>
+                <p className="text-xs text-muted">{new Date(stockSlip.createdAt).toLocaleString()}</p>
+              </div>
+              <button type="button" onClick={() => setStockSlip(null)} className="rounded-md p-1 text-muted hover:text-foreground" aria-label="Close"><X className="h-4 w-4" /></button>
+            </div>
+            <div className="mt-4 space-y-2 rounded-lg border border-line bg-surface-2 p-4 text-sm">
+              <div className="flex justify-between gap-3"><span className="text-muted">Supplier</span><span className="font-medium text-foreground">{stockSlip.supplierName}</span></div>
+              <div className="flex justify-between gap-3"><span className="text-muted">Product</span><span className="font-medium text-foreground">{stockSlip.productName}</span></div>
+              <div className="flex justify-between gap-3"><span className="text-muted">Quantity</span><span className="tabular-nums text-foreground">{stockSlip.quantity}</span></div>
+              <div className="flex justify-between gap-3"><span className="text-muted">Purchase price / unit</span><span className="tabular-nums text-foreground">{formatCurrency(stockSlip.unitCost)}</span></div>
+              <div className="flex justify-between gap-3 border-t border-line pt-2"><span className="text-muted">Total</span><span className="font-semibold tabular-nums text-foreground">{formatCurrency(stockSlip.total)}</span></div>
+              <div className="flex justify-between gap-3"><span className="text-muted">Paid now</span><span className="tabular-nums text-emerald-700 dark:text-emerald-300">{formatCurrency(stockSlip.paidNow)}</span></div>
+              <div className="flex justify-between gap-3"><span className="text-muted">Remaining</span><span className="font-semibold tabular-nums text-amber-700 dark:text-amber-300">{formatCurrency(stockSlip.remaining)}</span></div>
+              {stockSlip.note ? <div className="flex justify-between gap-3"><span className="text-muted">Note</span><span className="text-right text-foreground">{stockSlip.note}</span></div> : null}
+            </div>
+            <div className="mt-4 flex flex-wrap justify-end gap-2">
+              <button type="button" onClick={() => printStockSlip(stockSlip)} className="focus-ring inline-flex items-center gap-2 rounded-lg border border-line bg-surface px-3.5 py-2 text-sm font-medium text-foreground hover:border-accent/40">
+                <Printer className="h-4 w-4" /> Print slip
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const url = buildSupplierStockWhatsAppUrl(stockSlip);
+                  if (!url) { window.alert("Supplier WhatsApp/phone number is missing. Add supplier phone number first."); return; }
+                  window.open(url, "_blank", "noopener,noreferrer");
+                }}
+                className="focus-ring inline-flex items-center gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3.5 py-2 text-sm font-semibold text-emerald-700 hover:bg-emerald-500/15 dark:text-emerald-300"
+              >
+                <MessageCircle className="h-4 w-4" /> Send on WhatsApp
+              </button>
+              <button type="button" onClick={() => setStockSlip(null)} className="focus-ring rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-accent-fg">Done</button>
+            </div>
+            {!stockSlip.supplierPhone ? <p className="mt-2 text-xs text-amber-700 dark:text-amber-300">Supplier phone number is not saved, so WhatsApp cannot be opened. Add the supplier&apos;s number to send directly.</p> : null}
+          </div>
+        </div>
+      ) : null}
     </div>
   );
+}
+
+function buildSupplierStockWhatsAppUrl(slip: {
+  supplierName: string;
+  supplierPhone?: string | null;
+  productName: string;
+  quantity: number;
+  unitCost: number;
+  total: number;
+  paidNow: number;
+  remaining: number;
+  note?: string | null;
+  createdAt: string;
+}) {
+  const phone = normalizeWaPhone(slip.supplierPhone, "92");
+  if (!phone) return null;
+  const lines = [
+    "*7 Communication - Stock Purchase Slip*",
+    `Date: ${new Date(slip.createdAt).toLocaleString()}`,
+    `Supplier: ${slip.supplierName}`,
+    `Product: ${slip.productName}`,
+    `Quantity: ${slip.quantity}`,
+    `Purchase price / unit: ${formatCurrency(slip.unitCost)}`,
+    `Total: ${formatCurrency(slip.total)}`,
+    `Paid now: ${formatCurrency(slip.paidNow)}`,
+    `Remaining: ${formatCurrency(slip.remaining)}`,
+  ];
+  if (slip.note) lines.push(`Note: ${slip.note}`);
+  return `https://api.whatsapp.com/send?phone=${phone}&text=${encodeURIComponent(lines.join("\n"))}`;
+}
+
+function printStockSlip(slip: {
+  supplierName: string;
+  productName: string;
+  quantity: number;
+  unitCost: number;
+  total: number;
+  paidNow: number;
+  remaining: number;
+  note?: string | null;
+  createdAt: string;
+}) {
+  const html = `<!doctype html><html><head><meta charset="utf-8"/><title>Stock Purchase Slip</title>
+  <style>body{font-family:Arial,sans-serif;padding:24px;color:#111}h1{margin:0 0 4px;font-size:20px}.muted{color:#666;font-size:12px}.box{margin-top:16px;border:1px solid #eee;border-radius:8px;padding:12px}.row{display:flex;justify-content:space-between;padding:6px 0;font-size:13px;border-bottom:1px solid #f2f2f2}.row:last-child{border-bottom:0}.bold{font-weight:700}</style></head><body>
+  <h1>7 Communication</h1><div class="muted">Stock Purchase Slip</div><div class="muted">Date: ${new Date(slip.createdAt).toLocaleString()}</div>
+  <div class="box">
+    <div class="row"><span>Supplier</span><span>${escapeSlip(slip.supplierName)}</span></div>
+    <div class="row"><span>Product</span><span>${escapeSlip(slip.productName)}</span></div>
+    <div class="row"><span>Quantity</span><span>${slip.quantity}</span></div>
+    <div class="row"><span>Purchase price / unit</span><span>${formatCurrency(slip.unitCost)}</span></div>
+    <div class="row bold"><span>Total</span><span>${formatCurrency(slip.total)}</span></div>
+    <div class="row"><span>Paid now</span><span>${formatCurrency(slip.paidNow)}</span></div>
+    <div class="row bold"><span>Remaining</span><span>${formatCurrency(slip.remaining)}</span></div>
+    ${slip.note ? `<div class="row"><span>Note</span><span>${escapeSlip(slip.note)}</span></div>` : ""}
+  </div>
+  <script>window.onload=()=>{window.print();}</script></body></html>`;
+  const w = window.open("", "_blank", "noopener,noreferrer,width=700,height=800");
+  if (!w) return;
+  w.document.open();
+  w.document.write(html);
+  w.document.close();
+}
+
+function escapeSlip(s: string) {
+  return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c] as string));
 }
 
 function SupplierAvatar({ supplier, size }: { supplier: { name: string; imageUrl?: string | null }; size: number }) {
@@ -865,3 +1008,4 @@ function SupplierAvatar({ supplier, size }: { supplier: { name: string; imageUrl
     </span>
   );
 }
+

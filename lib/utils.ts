@@ -5,24 +5,23 @@ export function cn(...inputs: Array<string | false | null | undefined>): string 
   return inputs.filter(Boolean).join(" ");
 }
 
-/** Display currency: US Dollar (international). Pakistan uses PKR. */
-export const CURRENCY = "USD";
+/** Display currency for this app: PKR (Pakistan). */
+export const CURRENCY = "PKR";
 export const USD_TO_PKR = 280;
 
 export type DisplayCurrency = "USD" | "PKR";
-let displayCurrency: DisplayCurrency = "USD";
+let displayCurrency: DisplayCurrency = "PKR";
 
 export function setDisplayCurrency(currency: DisplayCurrency): void {
-  displayCurrency = currency === "PKR" ? "PKR" : "USD";
+  displayCurrency = currency === "PKR" ? "PKR" : "PKR";
 }
 
 export function getDisplayCurrency(): DisplayCurrency {
-  return displayCurrency;
+  return "PKR";
 }
 
-export function currencyForCountry(country?: string | null): DisplayCurrency {
-  const c = (country || "").trim().toLowerCase();
-  return c === "pakistan" || c === "pk" ? "PKR" : "USD";
+export function currencyForCountry(_country?: string | null): DisplayCurrency {
+  return "PKR";
 }
 
 function toDisplayValue(value: number): number {
@@ -44,7 +43,7 @@ function formatCompactValue(value: number, currency: DisplayCurrency): string {
   const safe = Number.isFinite(value) ? value : 0;
   const sign = safe < 0 ? "-" : "";
   const abs = Math.abs(safe);
-  const sym = currency === "PKR" ? "₨" : "$";
+  const sym = "Rs ";
   if (abs >= 1_000_000_000) return `${sign}${sym}${(abs / 1_000_000_000).toFixed(1).replace(/\.0$/, "")}B`;
   if (abs >= 1_000_000) return `${sign}${sym}${(abs / 1_000_000).toFixed(1).replace(/\.0$/, "")}M`;
   if (abs >= 1_000) return `${sign}${sym}${(abs / 1_000).toFixed(1).replace(/\.0$/, "")}K`;

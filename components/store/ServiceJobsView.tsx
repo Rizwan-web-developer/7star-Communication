@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { CheckCircle2, Loader2, Plus, Trash2, Wrench, X } from "lucide-react";
@@ -115,7 +115,7 @@ export function ServiceJobsView({ businessId }: { businessId: string }) {
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.message || "Failed to update job.");
       setJobs((cur) => cur.map((j) => (j.id === job.id ? (data.job as ServiceJob) : j)));
-      setNotice(`${job.jobNumber} → ${statusMeta(status).label}`);
+      setNotice(`${job.jobNumber} â†’ ${statusMeta(status).label}`);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to update job.");
     }
@@ -143,7 +143,7 @@ export function ServiceJobsView({ businessId }: { businessId: string }) {
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="flex items-center gap-2 text-[22px] font-semibold tracking-tight text-foreground"><Wrench className="h-5 w-5 text-accent" /> Service Jobs</h1>
-          <p className="mt-0.5 text-sm text-muted">Repair / service job cards — received → in progress → ready → delivered.</p>
+          <p className="mt-0.5 text-sm text-muted">Repair / service job cards â€” received â†’ in progress â†’ ready â†’ delivered.</p>
         </div>
         <button type="button" onClick={() => { resetForm(); setAddOpen(true); }} className="focus-ring inline-flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-accent-fg">
           <Plus className="h-4 w-4" /> New job card
@@ -177,7 +177,7 @@ export function ServiceJobsView({ businessId }: { businessId: string }) {
 
       <section className="overflow-hidden rounded-xl border border-line bg-surface">
         {loading ? (
-          <div className="flex items-center justify-center gap-2 px-4 py-12 text-sm text-muted"><Loader2 className="h-4 w-4 animate-spin" /> Loading jobs…</div>
+          <div className="flex items-center justify-center gap-2 px-4 py-12 text-sm text-muted"><Loader2 className="h-4 w-4 animate-spin" /> Loading jobsâ€¦</div>
         ) : visible.length === 0 ? (
           <p className="px-4 py-12 text-center text-sm text-muted">No service jobs here. Create a job card for a repair.</p>
         ) : (
@@ -255,12 +255,12 @@ export function ServiceJobsView({ businessId }: { businessId: string }) {
                 <input value={customerPhone} onChange={(e) => setCustomerPhone(e.target.value)} className="focus-ring h-10 w-full rounded-lg border border-line bg-surface-2 px-3 text-sm text-foreground" />
               </label>
               <label className="text-sm sm:col-span-2"><span className="mb-1 block text-xs font-medium text-muted">Device / item *</span>
-                <input value={device} onChange={(e) => setDevice(e.target.value)} placeholder="e.g. iPhone 13 — screen replacement" className="focus-ring h-10 w-full rounded-lg border border-line bg-surface-2 px-3 text-sm text-foreground placeholder:text-muted" />
+                <input value={device} onChange={(e) => setDevice(e.target.value)} placeholder="e.g. iPhone 13 â€” screen replacement" className="focus-ring h-10 w-full rounded-lg border border-line bg-surface-2 px-3 text-sm text-foreground placeholder:text-muted" />
               </label>
               <label className="text-sm sm:col-span-2"><span className="mb-1 block text-xs font-medium text-muted">Issue / work required</span>
                 <textarea value={issue} onChange={(e) => setIssue(e.target.value)} rows={2} className="focus-ring w-full rounded-lg border border-line bg-surface-2 px-3 py-2 text-sm text-foreground" />
               </label>
-              <label className="text-sm"><span className="mb-1 block text-xs font-medium text-muted">Estimate ($)</span>
+              <label className="text-sm"><span className="mb-1 block text-xs font-medium text-muted">Estimate (PKR)</span>
                 <input type="number" min="0" step="0.01" value={estimate} onChange={(e) => setEstimate(e.target.value)} className="focus-ring h-10 w-full rounded-lg border border-line bg-surface-2 px-3 text-sm text-foreground" />
               </label>
             </div>
@@ -287,3 +287,4 @@ export function ServiceJobsView({ businessId }: { businessId: string }) {
     </div>
   );
 }
+

@@ -1,11 +1,11 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import { ImagePlus, Loader2, PackagePlus, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 /**
- * AddProductModal — Hybrid inventory add form for Mobile Accessories & Gadgets.
+ * AddProductModal â€” Hybrid inventory add form for Mobile Accessories & Gadgets.
  *
  * Tracking modes:
  *  - QUANTITY_ONLY: bulk/non-serialized (cables, covers, tempered glass). Single total stock quantity.
@@ -244,14 +244,14 @@ export function AddProductModal({
             <div>
               <label className="mb-1 block text-xs font-medium text-muted">Category (select)</label>
               <select value={categoryId} onChange={(e) => setCategoryId(e.target.value)} className="focus-ring h-10 w-full rounded-lg border border-line bg-surface-2 px-3 text-sm text-foreground" disabled={categoriesLoading}>
-                <option value="">{categoriesLoading ? "Loading categories…" : categories.length === 0 ? "No categories yet — add one on the Categories page" : "Select category"}</option>
+                <option value="">{categoriesLoading ? "Loading categoriesâ€¦" : categories.length === 0 ? "No categories yet â€” add one on the Categories page" : "Select category"}</option>
                 {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
             </div>
             <div>
               <label className="mb-1 block text-xs font-medium text-muted">Brand (select)</label>
               <select value={brandId} onChange={(e) => setBrandId(e.target.value)} className="focus-ring h-10 w-full rounded-lg border border-line bg-surface-2 px-3 text-sm text-foreground" disabled={brandsLoading}>
-                <option value="">{brandsLoading ? "Loading brands…" : brands.length === 0 ? "No brands yet — add one on the Brands page" : "Select brand"}</option>
+                <option value="">{brandsLoading ? "Loading brandsâ€¦" : brands.length === 0 ? "No brands yet â€” add one on the Brands page" : "Select brand"}</option>
                 {brands.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
               </select>
             </div>
@@ -259,17 +259,17 @@ export function AddProductModal({
               <div className="sm:col-span-2">
                 <label className="mb-1 block text-xs font-medium text-muted">Supplier (who supplies this product)</label>
                 <select value={supplierId} onChange={(e) => setSupplierId(e.target.value)} className="focus-ring h-10 w-full rounded-lg border border-line bg-surface-2 px-3 text-sm text-foreground" disabled={suppliersLoading}>
-                  <option value="">{suppliersLoading ? "Loading suppliers…" : suppliers.length === 0 ? "No suppliers yet — add one on the Suppliers page" : "No supplier"}</option>
+                  <option value="">{suppliersLoading ? "Loading suppliersâ€¦" : suppliers.length === 0 ? "No suppliers yet â€” add one on the Suppliers page" : "No supplier"}</option>
                   {suppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
                 </select>
               </div>
             ) : null}
             <div>
-              <label className="mb-1 block text-xs font-medium text-muted">Cost price ($)</label>
+              <label className="mb-1 block text-xs font-medium text-muted">Cost price (PKR)</label>
               <input type="number" min="0" step="0.01" value={costPrice} onChange={(e) => setCostPrice(e.target.value)} placeholder="0" className="focus-ring h-10 w-full rounded-lg border border-line bg-surface-2 px-3 text-sm text-foreground placeholder:text-muted" />
             </div>
             <div>
-              <label className="mb-1 block text-xs font-medium text-muted">Selling price ($) *</label>
+              <label className="mb-1 block text-xs font-medium text-muted">Selling price (PKR) *</label>
               <input required type="number" min="0" step="0.01" value={sellingPrice} onChange={(e) => setSellingPrice(e.target.value)} placeholder="0" className="focus-ring h-10 w-full rounded-lg border border-line bg-surface-2 px-3 text-sm text-foreground placeholder:text-muted" />
             </div>
             <div className="sm:col-span-2">
@@ -294,7 +294,7 @@ export function AddProductModal({
             </div>
           </div>
 
-          {/* Tracking type toggle — only when the IMEI/Serial feature is granted */}
+          {/* Tracking type toggle â€” only when the IMEI/Serial feature is granted */}
           {serialEnabled ? (
             <div>
               <label className="mb-1.5 block text-xs font-medium text-muted">Tracking type</label>
@@ -380,7 +380,7 @@ export function AddProductModal({
                   {features.prescription ? (
                     <label className="flex items-center gap-2 text-sm text-foreground">
                       <input type="checkbox" checked={prescriptionRequired} onChange={(e) => setPrescriptionRequired(e.target.checked)} className="h-4 w-4 accent-[rgb(var(--accent))]" />
-                      Prescription required (Rx) — ask for doctor/prescription details at checkout
+                      Prescription required (Rx) â€” ask for doctor/prescription details at checkout
                     </label>
                   ) : null}
                   {features.installments ? (
@@ -414,3 +414,4 @@ export function AddProductModal({
     </div>
   );
 }
+

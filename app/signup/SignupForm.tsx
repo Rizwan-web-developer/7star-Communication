@@ -25,9 +25,9 @@ import type { IndustryKey } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 const PACKAGES = [
-  { key: "starter", label: "Starter", price: "$35/mo" },
-  { key: "pro", label: "Growth", price: "$65/mo" },
-  { key: "marketing-agency", label: "Marketing Agency", price: "$95/mo" },
+  { key: "starter", label: "Starter", price: "PKR 10,000/mo" },
+  { key: "pro", label: "Growth", price: "PKR 18,000/mo" },
+  { key: "marketing-agency", label: "Marketing Agency", price: "PKR 27,000/mo" },
 ] as const;
 
 function fieldClass(hasError: boolean): string {
@@ -259,7 +259,7 @@ export function SignupForm() {
                           ))}
                         </select>
                       </div>
-                      <p className="mt-1 text-xs text-muted">All regions use $. Pakistan uses PKR (converted).</p>
+                      <p className="mt-1 text-xs text-muted">Pricing is shown in PKR.</p>
                     </div>
                     <div>
                       <label htmlFor="signup-location" className="mb-1.5 block text-sm font-medium">City / Address <span className="text-rose-500">*</span></label>
