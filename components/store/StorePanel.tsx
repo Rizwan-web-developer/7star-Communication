@@ -27,8 +27,10 @@ import { useTheme } from "@/components/providers/ThemeProvider";
 import { AddProductModal, type CreatedProduct } from "@/components/store/AddProductModal";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { cn, currencyForCountry, formatCurrency } from "@/lib/utils";
+import { buildWhatsAppReceiptUrl } from "@/lib/whatsapp";
+import { MessageCircle } from "lucide-react";
 
-type Business = { id: string; uid?: string | null; businessName: string; slug?: string | null; status: string; industryType?: string; country?: string | null; location?: string | null; ownerName?: string | null; phone?: string | null; logoDataUrl?: string | null; accountType?: string; trialEndsAt?: string | null; subscriptionPaidUntil?: string | null };
+type Business = { id: string; uid?: string | null; businessName: string; slug?: string | null; status: string; industryType?: string; country?: string | null; location?: string | null; ownerName?: string | null; phone?: string | null; logoDataUrl?: string | null; accountType?: string; trialEndsAt?: string | null; subscriptionPaidUntil?: string | null; whatsappCountryCode?: string | null; whatsappNumber?: string | null };
 type SerialTag = { id: string; serialOrImei: string; isSold?: boolean; warrantyDays?: number };
 type Product = {
   id: string; name: string; sku?: string | null; barcode?: string | null; category?: string | null; categoryId?: string | null;
@@ -55,7 +57,7 @@ const DEFAULT_FLAGS: ProductFeatureFlags = {
 // A cart line is either a bulk quantity line or a single serialized unit locked to a specific serial.
 type CartLine = { product: Product; quantity: number; serialItemId?: string; serialOrImei?: string };
 type InvoiceItem = { id: string; quantity: number; unitPrice: number; lineTotal: number; serialOrImei?: string | null; productName?: string | null; brandName?: string | null; imageUrl?: string | null; batchNumber?: string | null; expiryDate?: string | null; shadeCode?: string | null; unitLabel?: string | null; product?: { name: string; brand?: string | null; imageUrl?: string | null } };
-type Invoice = { id: string; invoiceNumber: string; customerName?: string | null; subtotalPkr?: number; discountPkr?: number; totalAmount: number; downPaymentPkr?: number; duePkr?: number; paymentMethod: string; prescriptionNote?: string | null; clientRef?: string | null; createdAt: string; items: InvoiceItem[] };
+type Invoice = { id: string; invoiceNumber: string; customerName?: string | null; customerPhone?: string | null; subtotalPkr?: number; discountPkr?: number; totalAmount: number; downPaymentPkr?: number; duePkr?: number; paymentMethod: string; prescriptionNote?: string | null; clientRef?: string | null; createdAt: string; items: InvoiceItem[] };
 
 type OfflineSale = {
   clientRef: string;
@@ -381,6 +383,22 @@ export function StorePanel({ businessId, section }: { businessId: string; sectio
     setTimeout(() => {
       window.print();
     }, 200);
+  };
+
+  const sendReceiptWhatsApp = (inv: Invoice, fallbackPhone?: string | null) => {
+    const phone = inv.customerPhone || fallbackPhone || "";
+    const url = buildWhatsAppReceiptUrl({
+      customerPhone: phone,
+      defaultCountryCode: business?.whatsappCountryCode || "92",
+      shopName: business?.businessName || "7 Communication",
+      invoice: inv as any,
+      currency: "PKR",
+    });
+    if (!url) {
+      flash("err", "Customer WhatsApp number is missing. Add customer phone in POS before sending.");
+      return;
+    }
+    window.open(url, "_blank", "noopener,noreferrer");
   };
 
   const applyLocalSaleToState = (items: CartLine[]) => {
@@ -800,12 +818,17 @@ export function StorePanel({ businessId, section }: { businessId: string; sectio
                   <div className="flex items-start justify-between gap-2">
                     <div>
                       <p className="font-semibold text-foreground">Last sale: {lastInvoice.invoiceNumber}</p>
-                      <p className="text-muted">{formatCurrency(lastInvoice.totalAmount)} · stock deducted</p>
-                      {(lastInvoice.downPaymentPkr ?? 0) > 0 ? <p className="text-xs text-amber-700 dark:text-amber-300">Down {formatCurrency(lastInvoice.downPaymentPkr || 0)} · Due {formatCurrency(lastInvoice.duePkr || 0)}</p> : null}
+                      <p className="text-muted">{formatCurrency(lastInvoice.totalAmount)} — stock deducted</p>
+                      <p className={cn("text-xs font-medium", (lastInvoice.duePkr ?? 0) > 0 ? "text-amber-700 dark:text-amber-300" : "text-emerald-700 dark:text-emerald-300")}>Paid {formatCurrency(lastInvoice.downPaymentPkr || 0)} · Due {formatCurrency(lastInvoice.duePkr || 0)}</p>
                     </div>
-                    <button type="button" onClick={() => triggerPrint(lastInvoice)} className="focus-ring inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-line bg-surface px-2.5 py-1.5 text-xs font-semibold text-foreground hover:border-accent/40">
-                      <Printer className="h-3.5 w-3.5" /> Print receipt
-                    </button>
+                    <div className="flex shrink-0 flex-wrap gap-1.5">
+                      <button type="button" onClick={() => triggerPrint(lastInvoice)} className="focus-ring inline-flex items-center gap-1.5 rounded-lg border border-line bg-surface px-2.5 py-1.5 text-xs font-semibold text-foreground hover:border-accent/40">
+                        <Printer className="h-3.5 w-3.5" /> Print
+                      </button>
+                      <button type="button" onClick={() => sendReceiptWhatsApp(lastInvoice, customerPhone)} className="focus-ring inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1.5 text-xs font-semibold text-emerald-700 hover:bg-emerald-500/15 dark:text-emerald-300">
+                        <MessageCircle className="h-3.5 w-3.5" /> WhatsApp
+                      </button>
+                    </div>
                   </div>
                   <ul className="mt-2 space-y-1 text-xs text-muted">
                     {lastInvoice.items.map((it) => {
@@ -972,11 +995,11 @@ export function StorePanel({ businessId, section }: { businessId: string; sectio
             <div className="overflow-x-auto">
               <table className="w-full min-w-[700px] text-left text-sm">
                 <thead><tr className="border-b border-line bg-surface-2 text-xs font-semibold uppercase tracking-[0.04em] text-muted">
-                  <th className="px-4 py-2.5">Invoice</th><th className="px-3 py-2.5">Customer</th><th className="px-3 py-2.5">Payment</th><th className="px-3 py-2.5">Items</th><th className="px-4 py-2.5 text-right">Total</th>
+                  <th className="px-4 py-2.5">Invoice</th><th className="px-3 py-2.5">Customer</th><th className="px-3 py-2.5">Payment</th><th className="px-3 py-2.5">Items</th><th className="px-4 py-2.5 text-right">Total</th><th className="px-4 py-2.5 text-right">Actions</th>
                 </tr></thead>
                 <tbody>
                   {invoices.length === 0 ? (
-                    <tr><td colSpan={5} className="px-4 py-10 text-center text-sm text-muted">No sales yet. Complete a checkout in POS / Sell.</td></tr>
+                    <tr><td colSpan={6} className="px-4 py-10 text-center text-sm text-muted">No sales yet. Complete a checkout in POS / Sell.</td></tr>
                   ) : invoices.map((inv) => (
                     <tr key={inv.id} className="border-b border-line last:border-b-0">
                       <td className="px-4 py-3"><p className="font-mono text-xs font-medium text-foreground">{inv.invoiceNumber}</p><p className="text-xs text-muted">{new Date(inv.createdAt).toLocaleString("en-PK")}</p></td>
@@ -987,6 +1010,12 @@ export function StorePanel({ businessId, section }: { businessId: string; sectio
                         {formatCurrency(inv.totalAmount)}
                         <span className={cn("block text-[11px] font-medium", (inv.duePkr ?? 0) > 0 ? "text-amber-700 dark:text-amber-300" : "text-emerald-700 dark:text-emerald-300")}>Paid {formatCurrency(inv.downPaymentPkr || 0)} · Due {formatCurrency(inv.duePkr || 0)}</span>
                         {(inv.discountPkr ?? 0) > 0 ? <span className="block text-[11px] font-normal text-emerald-700 dark:text-emerald-300">Disc {formatCurrency(inv.discountPkr || 0)}</span> : null}
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex justify-end gap-1.5">
+                          <button type="button" onClick={() => triggerPrint(inv)} className="focus-ring inline-flex items-center gap-1 rounded-md border border-line bg-surface-2 px-2 py-1 text-[11px] font-medium text-foreground hover:border-accent/40" title="Print receipt"><Printer className="h-3.5 w-3.5" /> Print</button>
+                          <button type="button" onClick={() => sendReceiptWhatsApp(inv)} className="focus-ring inline-flex items-center gap-1 rounded-md border border-emerald-500/30 bg-emerald-500/10 px-2 py-1 text-[11px] font-medium text-emerald-700 hover:bg-emerald-500/15 dark:text-emerald-300" title="Send on WhatsApp"><MessageCircle className="h-3.5 w-3.5" /> WhatsApp</button>
+                        </div>
                       </td>
                     </tr>
                   ))}

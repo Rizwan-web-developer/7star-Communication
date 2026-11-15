@@ -5,7 +5,7 @@ import { ImagePlus, Loader2, Lock, Mail, Save, Store, Trash2, UserPlus, Users } 
 import { cn } from "@/lib/utils";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 
-type Shop = { id: string; uid?: string | null; businessName: string; email?: string | null; phone?: string | null; location?: string | null; logoDataUrl?: string | null };
+type Shop = { id: string; uid?: string | null; businessName: string; email?: string | null; phone?: string | null; location?: string | null; logoDataUrl?: string | null; whatsappCountryCode?: string | null; whatsappNumber?: string | null };
 type StaffMember = { id: string; name: string; username?: string | null; email: string; role: string; isActive: boolean; lastLoginAt?: string | null };
 
 export function StoreSettings({ businessId }: { businessId: string }) {
@@ -17,6 +17,8 @@ export function StoreSettings({ businessId }: { businessId: string }) {
   const [phone, setPhone] = useState("");
   const [location, setLocation] = useState("");
   const [logo, setLogo] = useState<string | null>(null);
+  const [waCountryCode, setWaCountryCode] = useState("92");
+  const [waNumber, setWaNumber] = useState("");
 
   const [curPw, setCurPw] = useState("");
   const [newPw, setNewPw] = useState("");
@@ -135,6 +137,8 @@ export function StoreSettings({ businessId }: { businessId: string }) {
       if (res.ok && data.business) {
         const b = data.business as Shop;
         setShop(b); setName(b.businessName || ""); setPhone(b.phone || ""); setLocation(b.location || ""); setLogo(b.logoDataUrl || null);
+        setWaCountryCode((b.whatsappCountryCode || "92").replace(/[^\d]/g, "") || "92");
+        setWaNumber(b.whatsappNumber || "");
       }
     } finally { setLoading(false); }
   };
@@ -153,7 +157,7 @@ export function StoreSettings({ businessId }: { businessId: string }) {
     e.preventDefault();
     setSaving(true); setMsg(null);
     try {
-      const res = await fetch(`/api/businesses/${businessId}/profile`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ businessName: name, phone, location, logoDataUrl: logo }) });
+      const res = await fetch(`/api/businesses/${businessId}/profile`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ businessName: name, phone, location, logoDataUrl: logo, whatsappCountryCode: waCountryCode, whatsappNumber: waNumber }) });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.message || "Failed to save");
       setShop((s) => (s ? { ...s, ...data.business } : s));
@@ -216,6 +220,14 @@ export function StoreSettings({ businessId }: { businessId: string }) {
             </label>
             <label className="text-sm"><span className="mb-1 block font-medium text-foreground">Location</span>
               <input value={location} onChange={(e) => setLocation(e.target.value)} className="focus-ring h-10 w-full rounded-lg border border-line bg-surface-2 px-3 text-sm text-foreground" />
+            </label>
+            <label className="text-sm"><span className="mb-1 block font-medium text-foreground">WhatsApp country code</span>
+              <input value={waCountryCode} onChange={(e) => setWaCountryCode(e.target.value.replace(/[^\d]/g, "").slice(0, 5))} placeholder="92" className="focus-ring h-10 w-full rounded-lg border border-line bg-surface-2 px-3 text-sm text-foreground" />
+              <span className="mt-1 block text-[11px] text-muted">Default country code for customer numbers (e.g. 92 for Pakistan).</span>
+            </label>
+            <label className="text-sm"><span className="mb-1 block font-medium text-foreground">Business/Owner WhatsApp number</span>
+              <input value={waNumber} onChange={(e) => setWaNumber(e.target.value.replace(/[^\d+]/g, "").slice(0, 20))} placeholder="e.g. 923001234567" className="focus-ring h-10 w-full rounded-lg border border-line bg-surface-2 px-3 text-sm text-foreground" />
+              <span className="mt-1 block text-[11px] text-muted">Reference number for your shop (used for WhatsApp receipt sharing context).</span>
             </label>
           </div>
 
