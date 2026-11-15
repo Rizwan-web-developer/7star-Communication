@@ -468,28 +468,15 @@ export function StorePanel({ businessId, section }: { businessId: string; sectio
       setTimeout(() => {
         try { iframe.contentWindow?.focus(); iframe.contentWindow?.print(); } catch { flash("err", "Could not open print view."); }
         setTimeout(() => { try { document.body.removeChild(iframe); } catch {} }, 1000);
-      }, 350);
+      }, 150);
     } catch {
       flash("err", "Could not open print view.");
     }
   };
 
-  const printReceiptWindow = (inv: Invoice, preOpened?: Window | null) => {
+  const printReceiptWindow = (inv: Invoice, _preOpened?: Window | null) => {
     const html = buildReceiptHtml(inv);
-    const w = preOpened && !preOpened.closed ? preOpened : null;
-    if (w) {
-      try {
-        w.document.open();
-        w.document.write(html);
-        w.document.close();
-        w.focus();
-        setTimeout(() => { try { w.print(); } catch {} }, 350);
-        return;
-      } catch {
-        // fall through to iframe
-      }
-    }
-    // Fallback: iframe print (no popup permission needed)
+    // Print on the same page via hidden iframe (fast, no popup/new tab)
     printViaIframe(html);
   };
 
@@ -545,9 +532,8 @@ export function StorePanel({ businessId, section }: { businessId: string; sectio
       flash("err", "Customer phone number is required (with country code 92).");
       return;
     }
-    // Try to open print window in click handler for popup-based print; iframe fallback is used if blocked.
-    const autoPrintWin = window.open("", "_blank");
     setCheckingOut(true);
+    const autoPrintWin: Window | null = null;
 
     // Group serialized lines by product -> serialItemIds; keep bulk lines as quantity
     const serialGroups = new Map<string, string[]>();
