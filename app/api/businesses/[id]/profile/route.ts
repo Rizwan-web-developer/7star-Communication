@@ -58,14 +58,31 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
 
     let business: any = null;
     const outBase = { id: true, uid: true, businessName: true, email: true, phone: true, country: true, location: true, whatsappCountryCode: true, whatsappNumber: true } as any;
+    const minimalBase = { id: true, uid: true, businessName: true, email: true, phone: true, country: true, location: true } as any;
     try {
       business = await prisma.tenant.update({ where: { id: params.id }, data: data as any, select: { ...outBase, logoDataUrl: true } });
     } catch {
-      // fallback: persist without logoDataUrl if client type stale, then read base
-      const { logoDataUrl, ...rest } = data as any;
-      await prisma.tenant.update({ where: { id: params.id }, data: rest as any });
+      // fallback: persist without logoDataUrl and/or newer whatsapp fields if client/schema stale
+      const { logoDataUrl, whatsappCountryCode, whatsappNumber, ...rest } = data as any;
+      try {
+        await prisma.tenant.update({ where: { id: params.id }, data: rest as any });
+      } catch {
+        // last resort: drop all optional extras
+        const safe: any = {};
+        if (typeof rest.businessName === "string") safe.businessName = rest.businessName;
+        if (rest.phone !== undefined) safe.phone = rest.phone;
+        if (rest.country !== undefined) safe.country = rest.country;
+        if (rest.location !== undefined) safe.location = rest.location;
+        if (Object.keys(safe).length) await prisma.tenant.update({ where: { id: params.id }, data: safe });
+      }
       if (logoDataUrl !== undefined) {
         await prisma.$executeRaw`UPDATE "Tenant" SET "logoDataUrl" = ${logoDataUrl} WHERE "id" = ${params.id}`.catch(() => {});
+      }
+      if (whatsappCountryCode !== undefined) {
+        await prisma.$executeRaw`UPDATE "Tenant" SET "whatsappCountryCode" = ${whatsappCountryCode} WHERE "id" = ${params.id}`.catch(() => {});
+      }
+      if (whatsappNumber !== undefined) {
+        await prisma.$executeRaw`UPDATE "Tenant" SET "whatsappNumber" = ${whatsappNumber} WHERE "id" = ${params.id}`.catch(() => {});
       }
       try {
         business = await prisma.tenant.findUnique({ where: { id: params.id }, select: { ...outBase, logoDataUrl: true } });
@@ -73,13 +90,17 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
         try {
           business = await prisma.tenant.findUnique({ where: { id: params.id }, select: outBase });
         } catch {
-          business = await prisma.tenant.findUnique({ where: { id: params.id }, select: { id: true, uid: true, businessName: true, email: true, phone: true, country: true, location: true } as any });
+          business = await prisma.tenant.findUnique({ where: { id: params.id }, select: minimalBase });
         }
       }
     }
     return NextResponse.json({ business });
   } catch (error) {
     console.error("Shop profile update error:", error);
-    return NextResponse.json({ message: "Failed to update profile." }, { status: 500 });
+    const msg = error instanceof Error ? error.message : "Failed to update profile.";
+    const safe = /max clients|timeout|ECONN|connection|FATAL|database/i.test(msg)
+      ? "Database connection issue. Please try again in a moment."
+      : "Failed to update profile.";
+    return NextResponse.json({ message: safe }, { status: 500 });
   }
 }
