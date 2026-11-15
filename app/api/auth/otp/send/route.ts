@@ -47,20 +47,9 @@ export async function POST(req: Request) {
       if (!user || !user.isActive || !verifyPassword(password, user.passwordHash)) {
         return NextResponse.json({ message: "Invalid email or password." }, { status: 401 });
       }
-      if (user.tenant) {
-        const t = user.tenant as any;
-        const now = new Date();
-        if (isDemoExpired(t, now) || isSubscriptionExpired(t, now)) {
-          await enforceTenantExpiry(prisma, t, now);
-          return NextResponse.json({
-            message: "Your 7-day trial or subscription has ended. Upgrade to Pro to continue.",
-            code: "UPGRADE_REQUIRED",
-            upgrade: true,
-          }, { status: 403 });
-        }
-        if (t.status === "DEACTIVE") {
-          return NextResponse.json({ message: "This account is locked. Your data is preserved. Contact support to upgrade." }, { status: 403 });
-        }
+      // One-time panel: do not block login on trial/subscription expiry.
+      if (user.tenant && (user.tenant as any).status === "DEACTIVE") {
+        return NextResponse.json({ message: "This account is locked. Please contact support." }, { status: 403 });
       }
       await issueOtp(email, "LOGIN", undefined, origin);
       return NextResponse.json({ ok: true, step: "otp", purpose: "LOGIN", email, message: "Verification code sent to your email." });

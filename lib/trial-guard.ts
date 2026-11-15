@@ -2,8 +2,6 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 
 // One-time licensed shop panel: no trial/subscription expiry blocking.
-export const TRIAL_UPGRADE_MESSAGE = "";
-
 export function isTenantAccessExpired(_tenant: {
   accountType?: string | null;
   status?: string | null;
@@ -11,10 +9,6 @@ export function isTenantAccessExpired(_tenant: {
   subscriptionPaidUntil?: Date | string | null;
 }, _now = new Date()): boolean {
   return false;
-}
-
-export function upgradeRequiredResponse(message = TRIAL_UPGRADE_MESSAGE) {
-  return NextResponse.json({ message: message || "Access denied." }, { status: 403 });
 }
 
 export async function assertTenantWritable(

@@ -54,17 +54,7 @@ export async function POST(req: Request) {
         },
       });
       if (!user || !user.isActive) return NextResponse.json({ message: "Account not found or inactive." }, { status: 401 });
-      if (user.tenant) {
-        const t = user.tenant as any;
-        const now = new Date();
-        if (isDemoExpired(t, now) || isSubscriptionExpired(t, now)) {
-          await enforceTenantExpiry(prisma, t, now);
-          return NextResponse.json({ message: "Your 7-day trial or subscription has ended. Upgrade to Pro to continue.", code: "UPGRADE_REQUIRED", upgrade: true }, { status: 403 });
-        }
-        if (t.status === "DEACTIVE") {
-          return NextResponse.json({ message: "This account is locked. Your data is preserved. Contact support to upgrade." }, { status: 403 });
-        }
-      }
+      // One-time panel: do not block login on trial/subscription expiry.
 
       await prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } }).catch(() => {});
       const token = await createSessionCookie({

@@ -188,7 +188,6 @@ export function StorePanel({ businessId, section }: { businessId: string; sectio
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState<{ tone: "ok" | "err"; text: string } | null>(null);
-  const [upgradeLocked, setUpgradeLocked] = useState(false);
 
   // Inventory: modal-driven add (hybrid tracking)
   const [addOpen, setAddOpen] = useState(false);
@@ -219,15 +218,13 @@ export function StorePanel({ businessId, section }: { businessId: string; sectio
   const [qtyPrompt, setQtyPrompt] = useState<Product | null>(null);
   const [qtyValue, setQtyValue] = useState("0");
 
-  const flash = (tone: "ok" | "err", text: string, upgrade = false) => {
-    if (upgrade) setUpgradeLocked(true);
+  const flash = (tone: "ok" | "err", text: string) => {
     setNotice({ tone, text });
-    setTimeout(() => setNotice(null), upgrade ? 7000 : 3500);
+    setTimeout(() => setNotice(null), 3500);
   };
   const apiMessage = (data: any, fallback: string) => {
-    const upgrade = !!(data && (data.code === "UPGRADE_REQUIRED" || data.upgrade));
     const msg = (data && typeof data.message === "string" && data.message) || fallback;
-    return { msg, upgrade };
+    return { msg };
   };
 
   const loadAll = useCallback(async () => {
@@ -249,11 +246,7 @@ export function StorePanel({ businessId, section }: { businessId: string; sectio
       setFeatures({ ...DEFAULT_FLAGS, ...(pData?.features ?? {}) });
       setInvoices(Array.isArray(iData.invoices) ? iData.invoices : []);
       setPendingOffline(readOfflineQueue(businessId).length);
-      const biz = bData.business ?? null;
-      const expiredDemo = !!biz && String(biz.accountType) === "DEMO" && biz.trialEndsAt && new Date(biz.trialEndsAt).getTime() <= Date.now();
-      const subExpired = !!biz && biz.subscriptionPaidUntil && new Date(biz.subscriptionPaidUntil).getTime() <= Date.now();
-      const locked = expiredDemo || subExpired || (!!biz && String(biz.status) === "DEACTIVE");
-      setUpgradeLocked(locked);
+      // One-time panel: no lock state.
     } catch {
       setError("Failed to load store data.");
     } finally {
@@ -418,7 +411,7 @@ export function StorePanel({ businessId, section }: { businessId: string; sectio
         body: JSON.stringify(payload),
       });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) { const m = apiMessage(data, "Checkout failed"); const err: any = new Error(m.msg); err.upgrade = m.upgrade; throw err; }
+      if (!res.ok) { const m = apiMessage(data, "Checkout failed"); throw new Error(m.msg); } }
       const inv = data.invoice as Invoice;
       setLastInvoice(inv);
       setCart([]);
@@ -482,7 +475,7 @@ export function StorePanel({ businessId, section }: { businessId: string; sectio
         setRxNote("");
         flash("ok", `Saved offline (${queue.length} pending). It will sync automatically when online.`);
       } else {
-        flash("err", e instanceof Error ? e.message : "Checkout failed", !!(e as any)?.upgrade);
+        flash("err", e instanceof Error ? e.message : "Checkout failed");
       }
     } finally {
       setCheckingOut(false);
@@ -534,10 +527,10 @@ export function StorePanel({ businessId, section }: { businessId: string; sectio
         body: JSON.stringify({ adjustStock: delta }),
       });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) { const m = apiMessage(data, "Update failed"); const err: any = new Error(m.msg); err.upgrade = m.upgrade; throw err; }
+      if (!res.ok) { const m = apiMessage(data, "Update failed"); throw new Error(m.msg); } }
       setProducts((cur) => cur.map((x) => (x.id === p.id ? (data.product as Product) : x)));
     } catch (e) {
-      flash("err", e instanceof Error ? e.message : "Stock update failed", !!(e as any)?.upgrade);
+      flash("err", e instanceof Error ? e.message : "Stock update failed");
     }
   };
 
@@ -553,7 +546,7 @@ export function StorePanel({ businessId, section }: { businessId: string; sectio
       setProducts((cur) => cur.map((x) => (x.id === p.id ? (data.product as Product) : x)));
       flash("ok", "Product updated.");
     } catch (e) {
-      flash("err", e instanceof Error ? e.message : "Update failed", !!(e as any)?.upgrade);
+      flash("err", e instanceof Error ? e.message : "Update failed");
     }
   };
 
@@ -562,12 +555,12 @@ export function StorePanel({ businessId, section }: { businessId: string; sectio
     try {
       const res = await fetch(`/api/businesses/${businessId}/products/${p.id}`, { method: "DELETE" });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) { const m = apiMessage(data, "Delete failed"); const err: any = new Error(m.msg); err.upgrade = m.upgrade; throw err; }
+      if (!res.ok) { const m = apiMessage(data, "Delete failed"); throw new Error(m.msg); } }
       setProducts((cur) => cur.filter((x) => x.id !== p.id));
       flash("ok", "Product deleted.");
       setConfirmDelete(null);
     } catch (e) {
-      flash("err", e instanceof Error ? e.message : "Delete failed", !!(e as any)?.upgrade);
+      flash("err", e instanceof Error ? e.message : "Delete failed");
     } finally {
       setDeleteBusy(false);
     }

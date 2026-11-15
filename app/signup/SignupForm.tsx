@@ -158,16 +158,16 @@ export function SignupForm() {
               </span>
               <span className="text-base font-semibold tracking-tight">{platformName}</span>
             </Link>
-            <h1 className="mt-8 text-2xl font-semibold tracking-tight">Start your 7-day free trial</h1>
+            <h1 className="mt-8 text-2xl font-semibold tracking-tight">Set up your shop account</h1>
             <p className="mt-2 text-sm leading-relaxed text-muted">
-              Full access to every feature for 7 days. After the trial, upgrade to keep using your account — your data stays preserved.
+              Create your account to access your mobile accessories shop panel with all enabled features.
             </p>
             <ul className="mt-6 space-y-3 text-sm">
               {[
-                "Full access to all features during the trial",
+                "Full access to all enabled features",
                 "Bulk quantity stock always included",
                 "POS, invoices, inventory, staff & more",
-                "Your data is preserved if the trial ends",
+                "Secure per-business data isolation",
               ].map((item) => (
                 <li key={item} className="flex items-start gap-2">
                   <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
@@ -198,7 +198,7 @@ export function SignupForm() {
 
             <div className="rounded-2xl border border-line bg-surface p-5 shadow-panel sm:p-7">
               <h2 className="text-xl font-semibold tracking-tight">{step === "otp" ? "Verify your email" : "Create your business account"}</h2>
-              <p className="mt-1 text-sm text-muted">{step === "otp" ? "Enter the 6-digit code sent to your email to activate your trial." : "Start a 7-day free trial with full access to every feature."}</p>
+              <p className="mt-1 text-sm text-muted">{step === "otp" ? "Enter the 6-digit code sent to your email to activate your account." : "Create your account to access your shop panel."}</p>
 
               {error ? (
                 <div role="alert" className="mt-4 rounded-lg border border-rose-500/25 bg-rose-500/10 px-3 py-2.5 text-sm text-rose-700 dark:text-rose-300">
@@ -318,7 +318,7 @@ export function SignupForm() {
                         );
                       })}
                     </div>
-                    <p className="mt-1.5 text-xs text-muted">7-day free trial includes full access to every feature. Choose a package to continue after the trial.</p>
+                    <p className="mt-1.5 text-xs text-muted">Select a package for your account setup.</p>
                   </div>
 
                   <div className="grid gap-3 sm:grid-cols-2">
@@ -362,7 +362,7 @@ export function SignupForm() {
                   </div>
                   <button type="submit" disabled={loading || code.length !== 6} className="focus-ring flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-accent px-4 text-sm font-semibold text-accent-fg transition-colors hover:bg-accent-hover disabled:opacity-60">
                     {loading ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : null}
-                    {loading ? "Creating your account…" : "Verify & start free trial"}
+                    {loading ? "Creating your account…" : "Verify & create account"}
                   </button>
                   <div className="flex items-center justify-between gap-2 text-sm">
                     <button type="button" onClick={() => { setStep("form"); setCode(""); setError(""); setInfo(""); }} className="font-medium text-muted hover:text-foreground">Back</button>
