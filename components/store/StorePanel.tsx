@@ -1310,7 +1310,7 @@ export function StorePanel({ businessId, section }: { businessId: string; sectio
       {/* Print-only receipt (black & white). Shown only during printing. */}
       {printInvoice ? (
         <div id="invoice-print-area" aria-hidden className="hidden">
-          <div style={{ width: "100%", maxWidth: 380, margin: "0 auto", padding: "12px 10px", fontFamily: "Arial, Helvetica, sans-serif", color: "#000", background: "#fff", fontSize: 12, lineHeight: 1.35 }}>
+          <div style={{ width: "72mm", maxWidth: "72mm", margin: "0 auto", padding: "2mm 1mm", fontFamily: "Arial, Helvetica, sans-serif", color: "#000", background: "#fff", fontSize: 11, lineHeight: 1.35 }}>
             <div style={{ textAlign: "center", borderBottom: "1px dashed #000", paddingBottom: 8, marginBottom: 8 }}>
               {business?.logoDataUrl ? (
                 <img src={business.logoDataUrl} alt="" style={{ height: 48, width: 48, objectFit: "contain", margin: "0 auto 4px", display: "block", filter: "grayscale(100%) contrast(1.15)" }} />
@@ -1381,7 +1381,13 @@ export function StorePanel({ businessId, section }: { businessId: string; sectio
           </div>
         </div>
       ) : null}
-      <style>{`@media print { body * { visibility: hidden !important; } #invoice-print-area, #invoice-print-area * { visibility: visible !important; } #invoice-print-area { display: block !important; position: absolute; inset: 0; width: 100%; background: #fff; } }`}</style>
+      <style>{`@media print {
+  @page { size: 80mm auto; margin: 3mm; }
+  html, body { margin: 0 !important; padding: 0 !important; background: #fff !important; height: auto !important; }
+  body * { visibility: hidden !important; }
+  #invoice-print-area, #invoice-print-area * { visibility: visible !important; }
+  #invoice-print-area { display: block !important; position: absolute; left: 0; top: 0; width: 80mm; max-width: 80mm; margin: 0; padding: 0; background: #fff; }
+}`}</style>
     </div>
   );
 }

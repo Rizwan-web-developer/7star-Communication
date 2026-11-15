@@ -145,18 +145,10 @@ export function SuppliersView({ businessId }: { businessId: string }) {
   const [delEntry, setDelEntry] = useState<LedgerEntry | null>(null);
   const [delBusy, setDelBusy] = useState(false);
 
-  const [stockSlip, setStockSlip] = useState<{
-    supplierName: string;
-    supplierPhone?: string | null;
-    productName: string;
-    quantity: number;
-    unitCost: number;
-    total: number;
-    paidNow: number;
-    remaining: number;
-    note?: string | null;
-    createdAt: string;
-  } | null>(null);
+  type SupplierSlip =
+    | { kind: "PURCHASE"; supplierName: string; supplierPhone?: string | null; productName: string; quantity: number; unitCost: number; total: number; paidNow: number; remaining: number; note?: string | null; createdAt: string }
+    | { kind: "PAYMENT"; supplierName: string; supplierPhone?: string | null; amount: number; note?: string | null; createdAt: string; context?: string | null };
+  const [supplierSlip, setSupplierSlip] = useState<SupplierSlip | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -341,7 +333,8 @@ export function SuppliersView({ businessId }: { businessId: string }) {
       const savedUnit = Number((data.entry as any)?.unitCost ?? cost);
       const savedTotal = Number((data.entry as any)?.amountPkr ?? total);
       const savedPaid = Number((data.entry as any)?.paidAmount ?? paid);
-      setStockSlip({
+      setSupplierSlip({
+        kind: "PURCHASE",
         supplierName: selected.name,
         supplierPhone: selected.phone ?? null,
         productName: savedProductName,
@@ -377,8 +370,19 @@ export function SuppliersView({ businessId }: { businessId: string }) {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.message || "Failed to save the payment.");
+      const savedAmount = Number((data.entry as any)?.amountPkr ?? amount);
+      const savedNote = String((data.entry as any)?.note ?? payNote ?? "").trim() || null;
+      setSupplierSlip({
+        kind: "PAYMENT",
+        supplierName: selected.name,
+        supplierPhone: selected.phone ?? null,
+        amount: savedAmount,
+        note: savedNote,
+        createdAt: String((data.entry as any)?.createdAt || new Date().toISOString()),
+        context: "Payment recorded",
+      });
       setPayAmount(""); setPayNote("");
-      setNotice("Payment saved.");
+      setNotice("Payment saved. Slip is ready to print or send on WhatsApp.");
       await load();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to save the payment.");
@@ -689,7 +693,11 @@ export function SuppliersView({ businessId }: { businessId: string }) {
                             <p className="text-[11px] text-muted">Paid {formatCurrency(entry.paidAmount)} Â· Remaining <b className="font-semibold text-amber-700 dark:text-amber-300">{formatCurrency(entry.remainingPkr)}</b></p>
                           )}
                         </div>
-                        <button type="button" onClick={() => setDelEntry(entry)} className="focus-ring rounded-md p-1 text-muted hover:text-rose-600" aria-label="Delete purchase bill"><Trash2 className="h-3.5 w-3.5" /></button>
+                        <div className="flex items-center gap-1">
+                          <button type="button" onClick={() => printSupplierSlip({ kind: "PURCHASE", supplierName: selected.name, supplierPhone: selected.phone ?? null, productName: entry.productName || "Purchase", quantity: Number(entry.quantity || 0), unitCost: Number(entry.unitCost || 0), total: Number(entry.amountPkr || 0), paidNow: Number(entry.paidAmount || 0), remaining: Number(entry.remainingPkr || 0), note: entry.note ?? null, createdAt: entry.createdAt })} className="focus-ring rounded-md p-1.5 text-muted hover:text-foreground" aria-label="Print purchase bill"><Printer className="h-3.5 w-3.5" /></button>
+                          <button type="button" onClick={() => { const url = buildSupplierSlipWhatsAppUrl({ kind: "PURCHASE", supplierName: selected.name, supplierPhone: selected.phone ?? null, productName: entry.productName || "Purchase", quantity: Number(entry.quantity || 0), unitCost: Number(entry.unitCost || 0), total: Number(entry.amountPkr || 0), paidNow: Number(entry.paidAmount || 0), remaining: Number(entry.remainingPkr || 0), note: entry.note ?? null, createdAt: entry.createdAt }); if (!url) { window.alert("Supplier WhatsApp/phone number is missing."); return; } window.open(url, "_blank", "noopener,noreferrer"); }} className="focus-ring rounded-md p-1.5 text-emerald-700 hover:bg-emerald-500/10 dark:text-emerald-300" aria-label="Send purchase bill on WhatsApp"><MessageCircle className="h-3.5 w-3.5" /></button>
+                          <button type="button" onClick={() => setDelEntry(entry)} className="focus-ring rounded-md p-1.5 text-muted hover:text-rose-600" aria-label="Delete purchase bill"><Trash2 className="h-3.5 w-3.5" /></button>
+                        </div>
                       </li>
                     ))}
                   </ul>
@@ -710,7 +718,11 @@ export function SuppliersView({ businessId }: { businessId: string }) {
                           <p className="text-[11px] text-muted">{new Date(entry.createdAt).toLocaleString("en-US")}</p>
                         </div>
                         <span className="text-sm font-semibold tabular-nums text-emerald-700 dark:text-emerald-300">{formatCurrency(entry.amountPkr)}</span>
-                        <button type="button" onClick={() => setDelEntry(entry)} className="focus-ring rounded-md p-1 text-muted hover:text-rose-600" aria-label="Delete payment"><Trash2 className="h-3.5 w-3.5" /></button>
+                        <div className="flex items-center gap-1">
+                          <button type="button" onClick={() => printSupplierSlip({ kind: "PAYMENT", supplierName: selected.name, supplierPhone: selected.phone ?? null, amount: Number(entry.amountPkr || 0), note: entry.note ?? null, createdAt: entry.createdAt, context: "Payment recorded" })} className="focus-ring rounded-md p-1.5 text-muted hover:text-foreground" aria-label="Print payment"><Printer className="h-3.5 w-3.5" /></button>
+                          <button type="button" onClick={() => { const url = buildSupplierSlipWhatsAppUrl({ kind: "PAYMENT", supplierName: selected.name, supplierPhone: selected.phone ?? null, amount: Number(entry.amountPkr || 0), note: entry.note ?? null, createdAt: entry.createdAt, context: "Payment recorded" }); if (!url) { window.alert("Supplier WhatsApp/phone number is missing."); return; } window.open(url, "_blank", "noopener,noreferrer"); }} className="focus-ring rounded-md p-1.5 text-emerald-700 hover:bg-emerald-500/10 dark:text-emerald-300" aria-label="Send payment on WhatsApp"><MessageCircle className="h-3.5 w-3.5" /></button>
+                          <button type="button" onClick={() => setDelEntry(entry)} className="focus-ring rounded-md p-1.5 text-muted hover:text-rose-600" aria-label="Delete payment"><Trash2 className="h-3.5 w-3.5" /></button>
+                        </div>
                       </li>
                     ))}
                   </ul>
@@ -877,35 +889,44 @@ export function SuppliersView({ businessId }: { businessId: string }) {
         loading={delBusy}
       />
 
-      {stockSlip ? (
-        <div className="fixed inset-0 z-[130] flex items-end justify-center sm:items-center" role="dialog" aria-modal="true" aria-label="Stock purchase slip">
-          <div className="absolute inset-0 bg-overlay/65 backdrop-blur-sm" onMouseDown={() => setStockSlip(null)} aria-hidden />
+      {supplierSlip ? (
+        <div className="fixed inset-0 z-[130] flex items-end justify-center sm:items-center" role="dialog" aria-modal="true" aria-label={supplierSlip.kind === "PURCHASE" ? "Stock purchase slip" : "Payment slip"}>
+          <div className="absolute inset-0 bg-overlay/65 backdrop-blur-sm" onMouseDown={() => setSupplierSlip(null)} aria-hidden />
           <div className="relative z-10 w-full max-w-lg rounded-t-2xl border border-line bg-surface p-5 shadow-panel sm:rounded-2xl">
             <div className="flex items-start justify-between gap-2">
               <div>
-                <h2 className="text-base font-semibold text-foreground">Stock purchase slip</h2>
-                <p className="text-xs text-muted">{new Date(stockSlip.createdAt).toLocaleString()}</p>
+                <h2 className="text-base font-semibold text-foreground">{supplierSlip.kind === "PURCHASE" ? "Stock purchase slip" : "Supplier payment slip"}</h2>
+                <p className="text-xs text-muted">{new Date(supplierSlip.createdAt).toLocaleString()}</p>
               </div>
-              <button type="button" onClick={() => setStockSlip(null)} className="rounded-md p-1 text-muted hover:text-foreground" aria-label="Close"><X className="h-4 w-4" /></button>
+              <button type="button" onClick={() => setSupplierSlip(null)} className="rounded-md p-1 text-muted hover:text-foreground" aria-label="Close"><X className="h-4 w-4" /></button>
             </div>
             <div className="mt-4 space-y-2 rounded-lg border border-line bg-surface-2 p-4 text-sm">
-              <div className="flex justify-between gap-3"><span className="text-muted">Supplier</span><span className="font-medium text-foreground">{stockSlip.supplierName}</span></div>
-              <div className="flex justify-between gap-3"><span className="text-muted">Product</span><span className="font-medium text-foreground">{stockSlip.productName}</span></div>
-              <div className="flex justify-between gap-3"><span className="text-muted">Quantity</span><span className="tabular-nums text-foreground">{stockSlip.quantity}</span></div>
-              <div className="flex justify-between gap-3"><span className="text-muted">Purchase price / unit</span><span className="tabular-nums text-foreground">{formatCurrency(stockSlip.unitCost)}</span></div>
-              <div className="flex justify-between gap-3 border-t border-line pt-2"><span className="text-muted">Total</span><span className="font-semibold tabular-nums text-foreground">{formatCurrency(stockSlip.total)}</span></div>
-              <div className="flex justify-between gap-3"><span className="text-muted">Paid now</span><span className="tabular-nums text-emerald-700 dark:text-emerald-300">{formatCurrency(stockSlip.paidNow)}</span></div>
-              <div className="flex justify-between gap-3"><span className="text-muted">Remaining</span><span className="font-semibold tabular-nums text-amber-700 dark:text-amber-300">{formatCurrency(stockSlip.remaining)}</span></div>
-              {stockSlip.note ? <div className="flex justify-between gap-3"><span className="text-muted">Note</span><span className="text-right text-foreground">{stockSlip.note}</span></div> : null}
+              <div className="flex justify-between gap-3"><span className="text-muted">Supplier</span><span className="font-medium text-foreground">{supplierSlip.supplierName}</span></div>
+              {supplierSlip.kind === "PURCHASE" ? (
+                <>
+                  <div className="flex justify-between gap-3"><span className="text-muted">Product</span><span className="font-medium text-foreground">{supplierSlip.productName}</span></div>
+                  <div className="flex justify-between gap-3"><span className="text-muted">Quantity</span><span className="tabular-nums text-foreground">{supplierSlip.quantity}</span></div>
+                  <div className="flex justify-between gap-3"><span className="text-muted">Purchase price / unit</span><span className="tabular-nums text-foreground">{formatCurrency(supplierSlip.unitCost)}</span></div>
+                  <div className="flex justify-between gap-3 border-t border-line pt-2"><span className="text-muted">Total</span><span className="font-semibold tabular-nums text-foreground">{formatCurrency(supplierSlip.total)}</span></div>
+                  <div className="flex justify-between gap-3"><span className="text-muted">Paid now</span><span className="tabular-nums text-emerald-700 dark:text-emerald-300">{formatCurrency(supplierSlip.paidNow)}</span></div>
+                  <div className="flex justify-between gap-3"><span className="text-muted">Remaining</span><span className="font-semibold tabular-nums text-amber-700 dark:text-amber-300">{formatCurrency(supplierSlip.remaining)}</span></div>
+                </>
+              ) : (
+                <>
+                  <div className="flex justify-between gap-3 border-t border-line pt-2"><span className="text-muted">Amount paid</span><span className="font-semibold tabular-nums text-emerald-700 dark:text-emerald-300">{formatCurrency(supplierSlip.amount)}</span></div>
+                  {supplierSlip.context ? <div className="flex justify-between gap-3"><span className="text-muted">Type</span><span className="text-foreground">{supplierSlip.context}</span></div> : null}
+                </>
+              )}
+              {supplierSlip.note ? <div className="flex justify-between gap-3"><span className="text-muted">Note</span><span className="text-right text-foreground">{supplierSlip.note}</span></div> : null}
             </div>
             <div className="mt-4 flex flex-wrap justify-end gap-2">
-              <button type="button" onClick={() => printStockSlip(stockSlip)} className="focus-ring inline-flex items-center gap-2 rounded-lg border border-line bg-surface px-3.5 py-2 text-sm font-medium text-foreground hover:border-accent/40">
-                <Printer className="h-4 w-4" /> Print slip
+              <button type="button" onClick={() => printSupplierSlip(supplierSlip)} className="focus-ring inline-flex items-center gap-2 rounded-lg border border-line bg-surface px-3.5 py-2 text-sm font-medium text-foreground hover:border-accent/40">
+                <Printer className="h-4 w-4" /> Print
               </button>
               <button
                 type="button"
                 onClick={() => {
-                  const url = buildSupplierStockWhatsAppUrl(stockSlip);
+                  const url = buildSupplierSlipWhatsAppUrl(supplierSlip);
                   if (!url) { window.alert("Supplier WhatsApp/phone number is missing. Add supplier phone number first."); return; }
                   window.open(url, "_blank", "noopener,noreferrer");
                 }}
@@ -913,9 +934,9 @@ export function SuppliersView({ businessId }: { businessId: string }) {
               >
                 <MessageCircle className="h-4 w-4" /> Send on WhatsApp
               </button>
-              <button type="button" onClick={() => setStockSlip(null)} className="focus-ring rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-accent-fg">Done</button>
+              <button type="button" onClick={() => setSupplierSlip(null)} className="focus-ring rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-accent-fg">Done</button>
             </div>
-            {!stockSlip.supplierPhone ? <p className="mt-2 text-xs text-amber-700 dark:text-amber-300">Supplier phone number is not saved, so WhatsApp cannot be opened. Add the supplier&apos;s number to send directly.</p> : null}
+            {!supplierSlip.supplierPhone ? <p className="mt-2 text-xs text-amber-700 dark:text-amber-300">Supplier phone number is not saved, so WhatsApp cannot be opened. Add the supplier&apos;s number to send directly.</p> : null}
           </div>
         </div>
       ) : null}
@@ -923,65 +944,78 @@ export function SuppliersView({ businessId }: { businessId: string }) {
   );
 }
 
-function buildSupplierStockWhatsAppUrl(slip: {
-  supplierName: string;
-  supplierPhone?: string | null;
-  productName: string;
-  quantity: number;
-  unitCost: number;
-  total: number;
-  paidNow: number;
-  remaining: number;
-  note?: string | null;
-  createdAt: string;
-}) {
+type SupplierSlipAny =
+  | { kind: "PURCHASE"; supplierName: string; supplierPhone?: string | null; productName: string; quantity: number; unitCost: number; total: number; paidNow: number; remaining: number; note?: string | null; createdAt: string }
+  | { kind: "PAYMENT"; supplierName: string; supplierPhone?: string | null; amount: number; note?: string | null; createdAt: string; context?: string | null };
+
+function buildSupplierSlipWhatsAppUrl(slip: SupplierSlipAny) {
   const phone = normalizeWaPhone(slip.supplierPhone, "92");
   if (!phone) return null;
-  const lines = [
-    "*7 Communication - Stock Purchase Slip*",
-    `Date: ${new Date(slip.createdAt).toLocaleString()}`,
-    `Supplier: ${slip.supplierName}`,
-    `Product: ${slip.productName}`,
-    `Quantity: ${slip.quantity}`,
-    `Purchase price / unit: ${formatCurrency(slip.unitCost)}`,
-    `Total: ${formatCurrency(slip.total)}`,
-    `Paid now: ${formatCurrency(slip.paidNow)}`,
-    `Remaining: ${formatCurrency(slip.remaining)}`,
-  ];
+  const lines: string[] = [];
+  if (slip.kind === "PURCHASE") {
+    lines.push("*7 Communication - Stock Purchase Slip*");
+    lines.push(`Date: ${new Date(slip.createdAt).toLocaleString()}`);
+    lines.push(`Supplier: ${slip.supplierName}`);
+    lines.push(`Product: ${slip.productName}`);
+    lines.push(`Quantity: ${slip.quantity}`);
+    lines.push(`Purchase price / unit: ${formatCurrency(slip.unitCost)}`);
+    lines.push(`Total: ${formatCurrency(slip.total)}`);
+    lines.push(`Paid now: ${formatCurrency(slip.paidNow)}`);
+    lines.push(`Remaining: ${formatCurrency(slip.remaining)}`);
+  } else {
+    lines.push("*7 Communication - Supplier Payment Slip*");
+    lines.push(`Date: ${new Date(slip.createdAt).toLocaleString()}`);
+    lines.push(`Supplier: ${slip.supplierName}`);
+    if (slip.context) lines.push(`Type: ${slip.context}`);
+    lines.push(`Amount paid: ${formatCurrency(slip.amount)}`);
+  }
   if (slip.note) lines.push(`Note: ${slip.note}`);
   return `https://api.whatsapp.com/send?phone=${phone}&text=${encodeURIComponent(lines.join("\n"))}`;
 }
 
-function printStockSlip(slip: {
-  supplierName: string;
-  productName: string;
-  quantity: number;
-  unitCost: number;
-  total: number;
-  paidNow: number;
-  remaining: number;
-  note?: string | null;
-  createdAt: string;
-}) {
-  const html = `<!doctype html><html><head><meta charset="utf-8"/><title>Stock Purchase Slip</title>
-  <style>body{font-family:Arial,sans-serif;padding:24px;color:#111}h1{margin:0 0 4px;font-size:20px}.muted{color:#666;font-size:12px}.box{margin-top:16px;border:1px solid #eee;border-radius:8px;padding:12px}.row{display:flex;justify-content:space-between;padding:6px 0;font-size:13px;border-bottom:1px solid #f2f2f2}.row:last-child{border-bottom:0}.bold{font-weight:700}</style></head><body>
-  <h1>7 Communication</h1><div class="muted">Stock Purchase Slip</div><div class="muted">Date: ${new Date(slip.createdAt).toLocaleString()}</div>
-  <div class="box">
-    <div class="row"><span>Supplier</span><span>${escapeSlip(slip.supplierName)}</span></div>
-    <div class="row"><span>Product</span><span>${escapeSlip(slip.productName)}</span></div>
-    <div class="row"><span>Quantity</span><span>${slip.quantity}</span></div>
-    <div class="row"><span>Purchase price / unit</span><span>${formatCurrency(slip.unitCost)}</span></div>
-    <div class="row bold"><span>Total</span><span>${formatCurrency(slip.total)}</span></div>
-    <div class="row"><span>Paid now</span><span>${formatCurrency(slip.paidNow)}</span></div>
-    <div class="row bold"><span>Remaining</span><span>${formatCurrency(slip.remaining)}</span></div>
-    ${slip.note ? `<div class="row"><span>Note</span><span>${escapeSlip(slip.note)}</span></div>` : ""}
-  </div>
-  <script>window.onload=()=>{window.print();}</script></body></html>`;
-  const w = window.open("", "_blank", "noopener,noreferrer,width=700,height=800");
-  if (!w) return;
+function printSupplierSlip(slip: SupplierSlipAny) {
+  const title = slip.kind === "PURCHASE" ? "Stock Purchase Slip" : "Supplier Payment Slip";
+  const body = slip.kind === "PURCHASE"
+    ? `
+      <div class="row"><span>Supplier</span><span>${escapeSlip(slip.supplierName)}</span></div>
+      <div class="row"><span>Product</span><span>${escapeSlip(slip.productName)}</span></div>
+      <div class="row"><span>Quantity</span><span>${slip.quantity}</span></div>
+      <div class="row"><span>Price / unit</span><span>${formatCurrency(slip.unitCost)}</span></div>
+      <div class="row bold"><span>Total</span><span>${formatCurrency(slip.total)}</span></div>
+      <div class="row"><span>Paid now</span><span>${formatCurrency(slip.paidNow)}</span></div>
+      <div class="row bold"><span>Remaining</span><span>${formatCurrency(slip.remaining)}</span></div>`
+    : `
+      <div class="row"><span>Supplier</span><span>${escapeSlip(slip.supplierName)}</span></div>
+      ${slip.context ? `<div class="row"><span>Type</span><span>${escapeSlip(slip.context)}</span></div>` : ""}
+      <div class="row bold"><span>Amount paid</span><span>${formatCurrency(slip.amount)}</span></div>`;
+  const html = `<!doctype html><html><head><meta charset="utf-8"/><title>${escapeSlip(title)}</title>
+  <style>
+    @page { size: 80mm auto; margin: 3mm; }
+    body{font-family:Arial,sans-serif;margin:0;padding:0;color:#111;background:#fff}
+    .receipt{width:72mm;margin:0 auto;font-size:11px;line-height:1.35}
+    h1{margin:0 0 2px;font-size:14px;text-align:center}
+    .muted{color:#444;font-size:10px;text-align:center}
+    .box{margin-top:8px}
+    .row{display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px dashed #ccc;gap:8px}
+    .row:last-child{border-bottom:0}
+    .bold{font-weight:700}
+  </style></head><body>
+  <div class="receipt">
+    <h1>7 Communication</h1>
+    <div class="muted">${escapeSlip(title)}</div>
+    <div class="muted">${new Date(slip.createdAt).toLocaleString()}</div>
+    <div class="box">
+      ${body}
+      ${slip.note ? `<div class="row"><span>Note</span><span>${escapeSlip(slip.note)}</span></div>` : ""}
+    </div>
+  </div></body></html>`;
+  const w = window.open("", "_blank");
+  if (!w) { window.alert("Please allow popups to print."); return; }
   w.document.open();
   w.document.write(html);
   w.document.close();
+  w.focus();
+  setTimeout(() => { try { w.print(); } catch {} }, 350);
 }
 
 function escapeSlip(s: string) {

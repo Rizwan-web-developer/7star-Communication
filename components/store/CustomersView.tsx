@@ -44,19 +44,42 @@ type CustomerDetail = Customer & {
 };
 
 function printInvoice(customer: CustomerDetail, inv: CustomerInvoice) {
-  const rows = inv.items.map((it) => `<tr><td>${escapeHtml(it.productName || "Item")}${it.serialOrImei ? `<div style="font-size:11px;color:#666">Serial/IMEI: ${escapeHtml(it.serialOrImei)}</div>` : ""}</td><td style="text-align:center">${it.quantity}</td><td style="text-align:right">${formatCurrency(it.lineTotal)}</td></tr>`).join("");
+  const rows = inv.items.map((it) => `<tr><td style="padding:4px 0;border-bottom:1px dashed #ccc"><div><b>${escapeHtml(it.productName || "Item")}</b></div>${it.serialOrImei ? `<div style="font-size:10px;color:#444">Serial/IMEI: ${escapeHtml(it.serialOrImei)}</div>` : ""}<div style="font-size:10px">${it.quantity} x ${formatCurrency(it.unitPrice)}</div></td><td style="padding:4px 0;border-bottom:1px dashed #ccc;text-align:right;vertical-align:top">${formatCurrency(it.lineTotal)}</td></tr>`).join("");
   const html = `<!doctype html><html><head><meta charset="utf-8"/><title>${escapeHtml(inv.invoiceNumber)}</title>
-  <style>body{font-family:Arial,sans-serif;padding:24px;color:#111}h1{margin:0 0 4px;font-size:20px}.muted{color:#666;font-size:12px}table{width:100%;border-collapse:collapse;margin-top:16px}th,td{border-bottom:1px solid #eee;padding:8px 4px;font-size:13px;text-align:left}th{font-size:11px;text-transform:uppercase;color:#666}.totals{margin-top:16px;max-width:320px;margin-left:auto}.totals div{display:flex;justify-content:space-between;padding:4px 0;font-size:13px}.bold{font-weight:700}</style></head><body>
-  <h1>7 Communication</h1><div class="muted">Invoice: ${escapeHtml(inv.invoiceNumber)}</div><div class="muted">Date: ${new Date(inv.createdAt).toLocaleString()}</div>
-  <div style="margin-top:12px"><div><b>Customer:</b> ${escapeHtml(customer.name)}</div>${customer.phone ? `<div><b>Phone:</b> ${escapeHtml(customer.phone)}</div>` : ""}${customer.address ? `<div><b>Address:</b> ${escapeHtml(customer.address)}</div>` : ""}</div>
-  <table><thead><tr><th>Item</th><th style="text-align:center">Qty</th><th style="text-align:right">Amount</th></tr></thead><tbody>${rows || `<tr><td colspan="3">No items</td></tr>`}</tbody></table>
-  <div class="totals"><div><span>Total</span><span>${formatCurrency(inv.totalAmount)}</span></div><div><span>Paid</span><span>${formatCurrency(inv.downPaymentPkr)}</span></div><div class="bold"><span>Due</span><span>${formatCurrency(inv.duePkr)}</span></div>${inv.paymentMethod ? `<div><span>Payment</span><span>${escapeHtml(String(inv.paymentMethod))}</span></div>` : ""}</div>
-  <script>window.onload=()=>{window.print();}</script></body></html>`;
-  const w = window.open("", "_blank", "noopener,noreferrer,width=800,height=900");
-  if (!w) return;
+  <style>
+    @page { size: 80mm auto; margin: 3mm; }
+    body{font-family:Arial,sans-serif;margin:0;padding:0;color:#111;background:#fff}
+    .receipt{width:72mm;margin:0 auto;font-size:11px;line-height:1.35}
+    h1{margin:0 0 2px;font-size:14px;text-align:center}
+    .muted{color:#444;font-size:10px;text-align:center}
+    .row{display:flex;justify-content:space-between;margin:2px 0}
+    table{width:100%;border-collapse:collapse;margin-top:6px}
+    .totals{margin-top:8px;border-top:1px dashed #000;padding-top:4px}
+    .bold{font-weight:700}
+  </style></head><body>
+  <div class="receipt">
+    <h1>7 Communication</h1>
+    <div class="muted">Invoice: ${escapeHtml(inv.invoiceNumber)}</div>
+    <div class="muted">${new Date(inv.createdAt).toLocaleString()}</div>
+    <div style="margin-top:6px;font-size:11px">
+      <div><b>Customer:</b> ${escapeHtml(customer.name)}</div>
+      ${customer.phone ? `<div><b>Phone:</b> ${escapeHtml(customer.phone)}</div>` : ""}
+    </div>
+    <table><tbody>${rows || `<tr><td colspan="2">No items</td></tr>`}</tbody></table>
+    <div class="totals">
+      <div class="row"><span>Total</span><span>${formatCurrency(inv.totalAmount)}</span></div>
+      <div class="row"><span>Paid</span><span>${formatCurrency(inv.downPaymentPkr)}</span></div>
+      <div class="row bold"><span>Due</span><span>${formatCurrency(inv.duePkr)}</span></div>
+      ${inv.paymentMethod ? `<div class="row"><span>Payment</span><span>${escapeHtml(String(inv.paymentMethod))}</span></div>` : ""}
+    </div>
+  </div></body></html>`;
+  const w = window.open("", "_blank");
+  if (!w) { window.alert("Please allow popups to print."); return; }
   w.document.open();
   w.document.write(html);
   w.document.close();
+  w.focus();
+  setTimeout(() => { try { w.print(); } catch {} }, 350);
 }
 
 function escapeHtml(s: string) {
