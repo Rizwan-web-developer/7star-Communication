@@ -74,13 +74,32 @@ function printInvoice(customer: CustomerDetail, inv: CustomerInvoice) {
       ${inv.paymentMethod ? `<div class="row"><span>Payment</span><span>${escapeHtml(String(inv.paymentMethod))}</span></div>` : ""}
     </div>
   </div></body></html>`;
-  const w = window.open("", "_blank");
-  if (!w) { window.alert("Please allow popups to print."); return; }
-  w.document.open();
-  w.document.write(html);
-  w.document.close();
-  w.focus();
-  setTimeout(() => { try { w.print(); } catch {} }, 350);
+  printHtmlOnSamePage(html);
+}
+
+function printHtmlOnSamePage(html: string) {
+  try {
+    const iframe = document.createElement("iframe");
+    iframe.style.position = "fixed";
+    iframe.style.right = "0";
+    iframe.style.bottom = "0";
+    iframe.style.width = "0";
+    iframe.style.height = "0";
+    iframe.style.border = "0";
+    iframe.setAttribute("aria-hidden", "true");
+    document.body.appendChild(iframe);
+    const doc = iframe.contentWindow?.document;
+    if (!doc) { document.body.removeChild(iframe); window.alert("Could not open print view."); return; }
+    doc.open();
+    doc.write(html);
+    doc.close();
+    setTimeout(() => {
+      try { iframe.contentWindow?.focus(); iframe.contentWindow?.print(); } catch {}
+      setTimeout(() => { try { document.body.removeChild(iframe); } catch {} }, 1000);
+    }, 150);
+  } catch {
+    window.alert("Could not open print view.");
+  }
 }
 
 function escapeHtml(s: string) {
@@ -164,6 +183,7 @@ export function CustomersView({ businessId }: { businessId: string }) {
   const [detailLoading, setDetailLoading] = useState(false);
   const [payAmount, setPayAmount] = useState("");
   const [payBusy, setPayBusy] = useState(false);
+  const [waChoice, setWaChoice] = useState<{ phone: string; message: string; pdfBlob: Blob; fileName: string } | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -308,17 +328,9 @@ export function CustomersView({ businessId }: { businessId: string }) {
         }
       }
 
-      // Fallback: download PDF and open WhatsApp chat (wa.me cannot attach PDF automatically)
-      const url = URL.createObjectURL(pdfBlob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = fileName;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 1000);
-      window.open(`https://api.whatsapp.com/send?phone=${phone}&text=${encodeURIComponent(`Receipt ${inv.invoiceNumber} - 7 Communication`)}`, "_blank", "noopener,noreferrer");
-      setNotice("PDF downloaded. WhatsApp opened — attach the downloaded PDF and send (WhatsApp link cannot attach PDF automatically).");
+      // Fallback: let user choose WhatsApp Web or App (PDF downloaded for manual attach)
+      const message = `Receipt ${inv.invoiceNumber} - 7 Communication`;
+      setWaChoice({ phone, message, pdfBlob, fileName });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to prepare WhatsApp receipt.");
     }
@@ -528,6 +540,53 @@ export function CustomersView({ businessId }: { businessId: string }) {
         tone="danger"
         loading={busy}
       />
+
+      {waChoice ? (
+        <div className="fixed inset-0 z-[140] flex items-end justify-center sm:items-center" role="dialog" aria-modal="true" aria-label="Send receipt on WhatsApp">
+          <div className="absolute inset-0 bg-overlay/65 backdrop-blur-sm" onMouseDown={() => setWaChoice(null)} aria-hidden />
+          <div className="relative z-10 w-full max-w-md rounded-t-2xl border border-line bg-surface p-5 shadow-panel sm:rounded-2xl">
+            <div className="flex items-start justify-between gap-2">
+              <div>
+                <h2 className="text-base font-semibold text-foreground">Send receipt on WhatsApp</h2>
+                <p className="mt-1 text-sm text-muted">PDF will be downloaded. Choose WhatsApp Web or App, then attach the downloaded PDF and send (WhatsApp link cannot attach PDF automatically).</p>
+              </div>
+              <button type="button" onClick={() => setWaChoice(null)} className="rounded-md p-1 text-muted hover:text-foreground" aria-label="Close"><X className="h-4 w-4" /></button>
+            </div>
+            <div className="mt-4 grid gap-2 sm:grid-cols-2">
+              <button
+                type="button"
+                onClick={() => {
+                  const { phone, message, pdfBlob, fileName } = waChoice;
+                  const url = URL.createObjectURL(pdfBlob);
+                  const a = document.createElement("a"); a.href = url; a.download = fileName; document.body.appendChild(a); a.click(); a.remove();
+                  setTimeout(() => URL.revokeObjectURL(url), 1000);
+                  window.open(`https://web.whatsapp.com/send?phone=${phone}&text=${encodeURIComponent(message)}`, "_blank", "noopener,noreferrer");
+                  setWaChoice(null);
+                  setNotice("PDF downloaded. WhatsApp Web opened — attach the PDF and send.");
+                }}
+                className="focus-ring inline-flex items-center justify-center gap-2 rounded-lg border border-line bg-surface-2 px-4 py-2.5 text-sm font-semibold text-foreground hover:border-accent/40"
+              >
+                <MessageCircle className="h-4 w-4" /> WhatsApp Web
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const { phone, message, pdfBlob, fileName } = waChoice;
+                  const url = URL.createObjectURL(pdfBlob);
+                  const a = document.createElement("a"); a.href = url; a.download = fileName; document.body.appendChild(a); a.click(); a.remove();
+                  setTimeout(() => URL.revokeObjectURL(url), 1000);
+                  window.open(`https://api.whatsapp.com/send?phone=${phone}&text=${encodeURIComponent(message)}`, "_blank", "noopener,noreferrer");
+                  setWaChoice(null);
+                  setNotice("PDF downloaded. WhatsApp opened — attach the PDF and send.");
+                }}
+                className="focus-ring inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700"
+              >
+                <Phone className="h-4 w-4" /> WhatsApp App
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
