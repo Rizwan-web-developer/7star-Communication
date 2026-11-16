@@ -1,5 +1,9 @@
-/** Maximum size (in data-URL characters) for one uploaded photo. */
-const MAX_DATA_URL_CHARS = 1_200_000;
+/**
+ * Maximum size (in data-URL characters) for one uploaded photo.
+ * Five photos must stay well below Vercel's 4.5 MB function request limit,
+ * so each photo is capped around 650 KB of base64 text.
+ */
+const MAX_DATA_URL_CHARS = 650_000;
 
 function loadImage(src: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {

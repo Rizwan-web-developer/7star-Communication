@@ -8,18 +8,24 @@ import { money, serializeEntry } from "@/lib/suppliers";
 
 const TYPE_SET = new Set(["PURCHASE", "PAYMENT"]);
 const MAX_IMAGES = 5;
-const MAX_IMAGE_CHARS = 1_300_000;
+const MAX_IMAGE_CHARS = 800_000;
+// Serverless functions reject bodies above ~4.5 MB. Keep all photos together
+// under 3.4 MB of base64 text so a 5-photo bill always saves successfully.
+const MAX_TOTAL_IMAGE_CHARS = 3_400_000;
 const IMAGE_PREFIX = /^data:image\/(png|jpe?g|webp|gif);base64,/;
 
 /** Validate bill/receipt photos picked from the gallery (max 5 compact data URLs). */
 function parseImages(input: unknown): string[] {
   if (!Array.isArray(input)) return [];
   const out: string[] = [];
+  let total = 0;
   for (const raw of input) {
     const value = String(raw ?? "");
     if (!IMAGE_PREFIX.test(value)) continue;
     if (value.length > MAX_IMAGE_CHARS) continue;
+    if (total + value.length > MAX_TOTAL_IMAGE_CHARS) break;
     out.push(value);
+    total += value.length;
     if (out.length >= MAX_IMAGES) break;
   }
   return out;
