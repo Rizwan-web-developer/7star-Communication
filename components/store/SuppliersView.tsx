@@ -5,6 +5,7 @@ import {
   ArrowDownLeft,
   ArrowUpRight,
   CheckCircle2,
+  Eye,
   ImagePlus,
   Loader2,
   MessageCircle,
@@ -19,6 +20,11 @@ import {
 } from "lucide-react";
 
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { WhatsAppPdfDialog, type WhatsAppPdfState } from "@/components/store/WhatsAppPdfDialog";
+import { fileToCompressedDataUrl } from "@/lib/image";
+import { printHtmlOnSamePage } from "@/lib/print";
+import { buildReceiptPdf, type PdfBlock } from "@/lib/receipt-pdf";
+import { sharePdfFile } from "@/lib/whatsapp-pdf";
 import { cn, formatCurrency } from "@/lib/utils";
 import { normalizeWaPhone } from "@/lib/whatsapp";
 
@@ -35,6 +41,7 @@ type LedgerEntry = {
   productName: string | null;
   note?: string | null;
   createdAt: string;
+  imageCount?: number;
 };
 
 type SupplierProduct = {
@@ -74,6 +81,10 @@ type SimpleProduct = {
   trackingType?: "QUANTITY_ONLY" | "SERIAL_OR_IMEI";
 };
 
+type SupplierSlip =
+  | { kind: "PURCHASE"; supplierName: string; supplierPhone?: string | null; productName: string; quantity: number; unitCost: number; total: number; paidNow: number; remaining: number; note?: string | null; createdAt: string }
+  | { kind: "PAYMENT"; supplierName: string; supplierPhone?: string | null; amount: number; note?: string | null; createdAt: string; context?: string | null };
+
 function parseSerials(input: string): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
@@ -89,12 +100,71 @@ function parseSerials(input: string): string[] {
   return out;
 }
 
-async function readImage(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result ?? ""));
-    reader.onerror = () => reject(new Error("Could not read the image."));
-    reader.readAsDataURL(file);
+function escapeSlip(value: string) {
+  return String(value ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c] as string));
+}
+
+function printSupplierSlip(slip: SupplierSlip) {
+  const title = slip.kind === "PURCHASE" ? "Stock Purchase Slip" : "Supplier Payment Slip";
+  const body = slip.kind === "PURCHASE"
+    ? `
+      <div class="row"><span>Supplier</span><span>${escapeSlip(slip.supplierName)}</span></div>
+      <div class="row"><span>Product</span><span>${escapeSlip(slip.productName)}</span></div>
+      <div class="row"><span>Quantity</span><span>${slip.quantity}</span></div>
+      <div class="row"><span>Price / unit</span><span>${formatCurrency(slip.unitCost)}</span></div>
+      <div class="row bold"><span>Total</span><span>${formatCurrency(slip.total)}</span></div>
+      <div class="row"><span>Paid now</span><span>${formatCurrency(slip.paidNow)}</span></div>
+      <div class="row bold"><span>Remaining</span><span>${formatCurrency(slip.remaining)}</span></div>`
+    : `
+      <div class="row"><span>Supplier</span><span>${escapeSlip(slip.supplierName)}</span></div>
+      ${slip.context ? `<div class="row"><span>Type</span><span>${escapeSlip(slip.context)}</span></div>` : ""}
+      <div class="row bold"><span>Amount paid</span><span>${formatCurrency(slip.amount)}</span></div>`;
+  const html = `<!doctype html><html><head><meta charset="utf-8"/><title>${escapeSlip(title)}</title>
+  <style>
+    @page { size: 80mm auto; margin: 3mm; }
+    body{font-family:Arial,sans-serif;margin:0;padding:0;color:#111;background:#fff}
+    .receipt{width:72mm;margin:0 auto;font-size:11px;line-height:1.35}
+    h1{margin:0 0 2px;font-size:14px;text-align:center}
+    .muted{color:#444;font-size:10px;text-align:center}
+    .box{margin-top:8px}
+    .row{display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px dashed #ccc;gap:8px}
+    .row:last-child{border-bottom:0}
+    .bold{font-weight:700}
+  </style></head><body>
+  <div class="receipt">
+    <h1>7 Communication</h1>
+    <div class="muted">${escapeSlip(title)}</div>
+    <div class="muted">${new Date(slip.createdAt).toLocaleString()}</div>
+    <div class="box">
+      ${body}
+      ${slip.note ? `<div class="row"><span>Note</span><span>${escapeSlip(slip.note)}</span></div>` : ""}
+    </div>
+  </div></body></html>`;
+  printHtmlOnSamePage(html);
+}
+
+function buildSupplierSlipPdf(slip: SupplierSlip): Blob {
+  const title = slip.kind === "PURCHASE" ? "Stock Purchase Slip" : "Supplier Payment Slip";
+  const blocks: PdfBlock[] = [{ kind: "row", label: "Supplier", value: slip.supplierName }];
+  if (slip.kind === "PURCHASE") {
+    blocks.push(
+      { kind: "row", label: "Product", value: slip.productName },
+      { kind: "row", label: "Quantity", value: String(slip.quantity) },
+      { kind: "row", label: "Price / unit", value: formatCurrency(slip.unitCost) },
+      { kind: "divider" },
+      { kind: "row", label: "Total", value: formatCurrency(slip.total), bold: true },
+      { kind: "row", label: "Paid now", value: formatCurrency(slip.paidNow) },
+      { kind: "row", label: "Remaining", value: formatCurrency(slip.remaining), bold: true },
+    );
+  } else {
+    if (slip.context) blocks.push({ kind: "row", label: "Type", value: slip.context });
+    blocks.push({ kind: "divider" }, { kind: "row", label: "Amount paid", value: formatCurrency(slip.amount), bold: true });
+  }
+  if (slip.note) blocks.push({ kind: "row", label: "Note", value: slip.note });
+  return buildReceiptPdf({
+    heading: "7 Communication",
+    subheading: `${title} · ${new Date(slip.createdAt).toLocaleString("en-PK")}`,
+    blocks,
   });
 }
 
@@ -134,21 +204,31 @@ export function SuppliersView({ businessId }: { businessId: string }) {
   const [serialText, setSerialText] = useState("");
   const [paidNow, setPaidNow] = useState("");
   const [billNote, setBillNote] = useState("");
+  const [billImages, setBillImages] = useState<string[]>([]);
+  const [billImageBusy, setBillImageBusy] = useState(false);
   const [billBusy, setBillBusy] = useState(false);
 
   // Payment
   const [payAmount, setPayAmount] = useState("");
   const [payNote, setPayNote] = useState("");
+  const [payImages, setPayImages] = useState<string[]>([]);
+  const [payImageBusy, setPayImageBusy] = useState(false);
   const [payBusy, setPayBusy] = useState(false);
 
   const [delSupplier, setDelSupplier] = useState<Supplier | null>(null);
   const [delEntry, setDelEntry] = useState<LedgerEntry | null>(null);
   const [delBusy, setDelBusy] = useState(false);
 
-  type SupplierSlip =
-    | { kind: "PURCHASE"; supplierName: string; supplierPhone?: string | null; productName: string; quantity: number; unitCost: number; total: number; paidNow: number; remaining: number; note?: string | null; createdAt: string }
-    | { kind: "PAYMENT"; supplierName: string; supplierPhone?: string | null; amount: number; note?: string | null; createdAt: string; context?: string | null };
+  // Entry details + bill / receipt photos
+  const [detailEntry, setDetailEntry] = useState<LedgerEntry | null>(null);
+  const [detailPendingAfter, setDetailPendingAfter] = useState(0);
+  const [detailImages, setDetailImages] = useState<string[]>([]);
+  const [detailImagesLoading, setDetailImagesLoading] = useState(false);
+  const [detailImagesSaving, setDetailImagesSaving] = useState(false);
+  const [detailImagesDirty, setDetailImagesDirty] = useState(false);
+
   const [supplierSlip, setSupplierSlip] = useState<SupplierSlip | null>(null);
+  const [waPdf, setWaPdf] = useState<WhatsAppPdfState | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -180,14 +260,25 @@ export function SuppliersView({ businessId }: { businessId: string }) {
   const totalPaid = suppliers.reduce((sum, s) => sum + s.paymentsPkr, 0);
   const totalRemaining = suppliers.reduce((sum, s) => sum + s.balancePkr, 0);
 
-  const purchaseBills = useMemo(
-    () => (selected ? selected.entries.filter((e) => e.type === "PURCHASE") : []),
-    [selected],
-  );
-  const paymentEntries = useMemo(
-    () => (selected ? selected.entries.filter((e) => e.type === "PAYMENT") : []),
-    [selected],
-  );
+  // One combined statement: purchases + payments in one place, with the
+  // supplier balance that remains after each entry.
+  const ledgerRows = useMemo(() => {
+    if (!selected) return [] as Array<LedgerEntry & { pendingAfter: number }>;
+    const ascending = [...selected.entries].sort(
+      (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+    );
+    const pendingById = new Map<string, number>();
+    let balance = 0;
+    for (const entry of ascending) {
+      if (entry.type === "PURCHASE") {
+        balance += Number(entry.amountPkr || 0) - Number(entry.paidAmount || 0);
+      } else {
+        balance -= Number(entry.amountPkr || 0);
+      }
+      pendingById.set(entry.id, Math.max(0, Math.round(balance * 100) / 100));
+    }
+    return selected.entries.map((entry) => ({ ...entry, pendingAfter: pendingById.get(entry.id) ?? 0 }));
+  }, [selected]);
 
   const productMatches = useMemo(() => {
     const t = productSearch.trim().toLowerCase();
@@ -220,6 +311,7 @@ export function SuppliersView({ businessId }: { businessId: string }) {
     setSerialText("");
     setPaidNow("");
     setBillNote("");
+    setBillImages([]);
     setMode("existing");
   };
 
@@ -234,9 +326,56 @@ export function SuppliersView({ businessId }: { businessId: string }) {
   const onImage = async (e: ChangeEvent<HTMLInputElement>, set: (v: string | null) => void) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (!file.type.startsWith("image/")) { setError("Select an image file."); return; }
-    try { set(await readImage(file)); } catch { setError("Could not load the image."); }
+    setError("");
+    try {
+      set(await fileToCompressedDataUrl(file));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not load the image.");
+    }
     e.target.value = "";
+  };
+
+  const readPickedImages = async (files: File[], current: string[]): Promise<string[]> => {
+    const room = 5 - current.length;
+    if (room <= 0) {
+      setError("You can attach up to 5 bill photos.");
+      return current;
+    }
+    const next = [...current];
+    for (const file of files.slice(0, room)) {
+      try {
+        next.push(await fileToCompressedDataUrl(file));
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Could not read the image.");
+      }
+    }
+    return next;
+  };
+
+  const onBillImages = async (e: ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? []);
+    e.target.value = "";
+    if (!files.length) return;
+    setBillImageBusy(true);
+    setError("");
+    try {
+      setBillImages(await readPickedImages(files, billImages));
+    } finally {
+      setBillImageBusy(false);
+    }
+  };
+
+  const onPayImages = async (e: ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? []);
+    e.target.value = "";
+    if (!files.length) return;
+    setPayImageBusy(true);
+    setError("");
+    try {
+      setPayImages(await readPickedImages(files, payImages));
+    } finally {
+      setPayImageBusy(false);
+    }
   };
 
   const createSupplier = async () => {
@@ -319,6 +458,7 @@ export function SuppliersView({ businessId }: { businessId: string }) {
         serials: isSerializedEntry ? serials : undefined,
         paidNow: paid,
         note: billNote,
+        images: billImages,
       };
       const productNameForSlip = mode === "existing" ? (chosenProduct?.name || "Product") : newName.trim();
       const res = await fetch(`/api/businesses/${businessId}/suppliers/${selected.id}/entries`, {
@@ -366,7 +506,7 @@ export function SuppliersView({ businessId }: { businessId: string }) {
       const res = await fetch(`/api/businesses/${businessId}/suppliers/${selected.id}/entries`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ type: "PAYMENT", amountPkr: amount, note: payNote }),
+        body: JSON.stringify({ type: "PAYMENT", amountPkr: amount, note: payNote, images: payImages }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.message || "Failed to save the payment.");
@@ -381,7 +521,7 @@ export function SuppliersView({ businessId }: { businessId: string }) {
         createdAt: String((data.entry as any)?.createdAt || new Date().toISOString()),
         context: "Payment recorded",
       });
-      setPayAmount(""); setPayNote("");
+      setPayAmount(""); setPayNote(""); setPayImages([]);
       setNotice("Payment saved. Slip is ready to print or send on WhatsApp.");
       await load();
     } catch (e) {
@@ -426,6 +566,124 @@ export function SuppliersView({ businessId }: { businessId: string }) {
     }
   };
 
+  const slipFromEntry = (entry: LedgerEntry): SupplierSlip => {
+    if (entry.type === "PURCHASE") {
+      return {
+        kind: "PURCHASE",
+        supplierName: selected?.name ?? "Supplier",
+        supplierPhone: selected?.phone ?? null,
+        productName: entry.productName || "Purchase",
+        quantity: Number(entry.quantity || 0),
+        unitCost: Number(entry.unitCost || 0),
+        total: Number(entry.amountPkr || 0),
+        paidNow: Number(entry.paidAmount || 0),
+        remaining: Number(entry.remainingPkr || 0),
+        note: entry.note ?? null,
+        createdAt: entry.createdAt,
+      };
+    }
+    return {
+      kind: "PAYMENT",
+      supplierName: selected?.name ?? "Supplier",
+      supplierPhone: selected?.phone ?? null,
+      amount: Number(entry.amountPkr || 0),
+      note: entry.note ?? null,
+      createdAt: entry.createdAt,
+      context: "Payment recorded",
+    };
+  };
+
+  const openEntryDetails = async (entry: LedgerEntry, pendingAfter: number) => {
+    if (!selected) return;
+    const supplierId = selected.id;
+    setError(""); setNotice("");
+    setDetailEntry(entry);
+    setDetailPendingAfter(pendingAfter);
+    setDetailImages([]);
+    setDetailImagesDirty(false);
+    setDetailImagesLoading(true);
+    try {
+      const res = await fetch(
+        `/api/businesses/${businessId}/suppliers/${supplierId}/entries?entryId=${encodeURIComponent(entry.id)}`,
+        { cache: "no-store" },
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.message || "Failed to load the entry details.");
+      if (data.entry) setDetailEntry({ ...entry, ...(data.entry as LedgerEntry) });
+      setDetailImages(Array.isArray(data.images) ? (data.images as string[]) : []);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to load the entry details.");
+    } finally {
+      setDetailImagesLoading(false);
+    }
+  };
+
+  const onDetailImages = async (e: ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? []);
+    e.target.value = "";
+    if (!files.length) return;
+    setDetailImagesSaving(true);
+    setError("");
+    try {
+      const next = await readPickedImages(files, detailImages);
+      setDetailImages(next);
+      setDetailImagesDirty(true);
+    } finally {
+      setDetailImagesSaving(false);
+    }
+  };
+
+  const removeDetailImage = (index: number) => {
+    setDetailImages((cur) => cur.filter((_, i) => i !== index));
+    setDetailImagesDirty(true);
+  };
+
+  const saveDetailImages = async () => {
+    if (!detailEntry || !selected) return;
+    setDetailImagesSaving(true);
+    setError(""); setNotice("");
+    try {
+      const res = await fetch(`/api/businesses/${businessId}/suppliers/${selected.id}/entries`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ entryId: detailEntry.id, images: detailImages }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.message || "Failed to save the bill photos.");
+      setSuppliers((cur) =>
+        cur.map((supplier) =>
+          supplier.id !== selected.id
+            ? supplier
+            : {
+                ...supplier,
+                entries: supplier.entries.map((entry) =>
+                  entry.id === detailEntry.id ? { ...entry, imageCount: detailImages.length } : entry,
+                ),
+              },
+        ),
+      );
+      setDetailImagesDirty(false);
+      setNotice("Bill photos saved.");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to save the bill photos.");
+    } finally {
+      setDetailImagesSaving(false);
+    }
+  };
+
+  const sendSlipWhatsApp = async (slip: SupplierSlip) => {
+    setError(""); setNotice("");
+    const phone = normalizeWaPhone(slip.supplierPhone, "92");
+    if (!phone) { setError("Supplier WhatsApp/phone number is missing. Add the supplier's number first."); return; }
+    const blob = buildSupplierSlipPdf(slip);
+    const fileName = `${slip.kind === "PURCHASE" ? "stock-purchase" : "supplier-payment"}-${new Date(slip.createdAt).toISOString().slice(0, 10)}.pdf`;
+    const title = slip.kind === "PURCHASE" ? "Stock purchase slip" : "Supplier payment slip";
+    const result = await sharePdfFile(blob, fileName, title);
+    if (result === "shared") { setNotice("Slip PDF shared. Send it in WhatsApp."); return; }
+    if (result === "cancelled") return;
+    setWaPdf({ phone, blob, fileName, title });
+  };
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-3">
@@ -456,7 +714,7 @@ export function SuppliersView({ businessId }: { businessId: string }) {
       {notice ? <div className="rounded-lg border border-emerald-500/25 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-700 dark:text-emerald-300">{notice}</div> : null}
 
       {loading ? (
-        <div className="flex items-center justify-center gap-2 rounded-xl border border-line bg-surface px-4 py-12 text-sm text-muted"><Loader2 className="h-4 w-4 animate-spin" /> Loading suppliersâ€¦</div>
+        <div className="flex items-center justify-center gap-2 rounded-xl border border-line bg-surface px-4 py-12 text-sm text-muted"><Loader2 className="h-4 w-4 animate-spin" /> Loading suppliers…</div>
       ) : suppliers.length === 0 ? (
         <p className="rounded-xl border border-line bg-surface px-4 py-12 text-center text-sm text-muted">No suppliers yet. Add your first supplier to start recording purchases.</p>
       ) : (
@@ -469,7 +727,7 @@ export function SuppliersView({ businessId }: { businessId: string }) {
                     <SupplierAvatar supplier={s} size={40} />
                     <span className="min-w-0 flex-1">
                       <span className="block truncate font-medium text-foreground">{s.name}</span>
-                      <span className="block text-xs text-muted">{s.products.length} products Â· {s.phone || "No phone"}</span>
+                      <span className="block text-xs text-muted">{s.products.length} products · {s.phone || "No phone"}</span>
                     </span>
                     <span className={cn("shrink-0 text-sm font-semibold tabular-nums", s.balancePkr > 0 ? "text-amber-700 dark:text-amber-300" : "text-emerald-700 dark:text-emerald-300")}>{formatCurrency(s.balancePkr)}</span>
                   </button>
@@ -486,7 +744,7 @@ export function SuppliersView({ businessId }: { businessId: string }) {
                     <SupplierAvatar supplier={selected} size={56} />
                     <div>
                       <h2 className="text-base font-semibold text-foreground">{selected.name}</h2>
-                      <p className="text-xs text-muted">{[selected.phone, selected.address].filter(Boolean).join(" Â· ") || "No contact details"}</p>
+                      <p className="text-xs text-muted">{[selected.phone, selected.address].filter(Boolean).join(" · ") || "No contact details"}</p>
                     </div>
                   </div>
                   <div className="flex gap-2">
@@ -522,8 +780,8 @@ export function SuppliersView({ businessId }: { businessId: string }) {
                           <div className="min-w-0">
                             <p className="truncate text-sm font-medium text-foreground">{chosenProduct.name}</p>
                             <p className="text-xs text-muted">
-                              In stock: {chosenProduct.stockQuantity} Â· Sells at {formatCurrency(chosenProduct.sellingPrice)}
-                              {chosenProduct.trackingType === "SERIAL_OR_IMEI" ? " Â· Serial/IMEI product" : ""}
+                              In stock: {chosenProduct.stockQuantity} · Sells at {formatCurrency(chosenProduct.sellingPrice)}
+                              {chosenProduct.trackingType === "SERIAL_OR_IMEI" ? " · Serial/IMEI product" : ""}
                             </p>
                           </div>
                           <button type="button" onClick={() => { setProductId(""); setProductSearch(""); setSellPriceEdit(""); setSerialText(""); }} className="focus-ring rounded-md p-1 text-muted hover:text-foreground" aria-label="Clear selected product"><X className="h-4 w-4" /></button>
@@ -532,7 +790,7 @@ export function SuppliersView({ businessId }: { businessId: string }) {
                         <div>
                           <div className="relative">
                             <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
-                            <input value={productSearch} onChange={(e) => setProductSearch(e.target.value)} placeholder="Search a product by nameâ€¦" className="focus-ring h-10 w-full rounded-lg border border-line bg-surface-2 pl-8 pr-3 text-sm text-foreground placeholder:text-muted" />
+                            <input value={productSearch} onChange={(e) => setProductSearch(e.target.value)} placeholder="Search a product by name, brand or category…" className="focus-ring h-10 w-full rounded-lg border border-line bg-surface-2 pl-8 pr-3 text-sm text-foreground placeholder:text-muted" />
                           </div>
                           <div className="mt-2 max-h-48 overflow-y-auto rounded-lg border border-line">
                             {productMatches.length === 0 ? (
@@ -544,7 +802,7 @@ export function SuppliersView({ businessId }: { businessId: string }) {
                                     <button type="button" onClick={() => { setProductId(p.id); setProductSearch(""); setSellPriceEdit(String(p.sellingPrice ?? "")); setSerialText(""); }} className="focus-ring flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm hover:bg-surface-2">
                                       <span className="min-w-0">
                                         <span className="block truncate text-foreground">{p.name}{p.trackingType === "SERIAL_OR_IMEI" ? <span className="ml-1 text-[11px] text-accent">(Serial/IMEI)</span> : null}</span>
-                                        <span className="block truncate text-[11px] text-muted">{[p.brand, p.category].filter(Boolean).join(" Â· ") || "â€”"}</span>
+                                        <span className="block truncate text-[11px] text-muted">{[p.brand, p.category].filter(Boolean).join(" · ") || "—"}</span>
                                       </span>
                                       <span className="shrink-0 text-xs text-muted">Stock {p.stockQuantity}</span>
                                     </button>
@@ -580,7 +838,7 @@ export function SuppliersView({ businessId }: { businessId: string }) {
                     <div>
                       <label className="mb-1 block text-xs font-medium text-muted">Serial / IMEI numbers * (one per line)</label>
                       <textarea value={serialText} onChange={(e) => setSerialText(e.target.value)} rows={3} placeholder="Enter each Serial/IMEI on a new line" className="focus-ring w-full rounded-lg border border-line bg-surface-2 px-3 py-2 text-sm text-foreground placeholder:text-muted" />
-                      <p className="mt-1 text-xs text-muted"><span className="font-semibold tabular-nums text-foreground">{serials.length}</span> item(s) â€” quantity is set from serial count.</p>
+                      <p className="mt-1 text-xs text-muted"><span className="font-semibold tabular-nums text-foreground">{serials.length}</span> item(s) — quantity is set from serial count.</p>
                     </div>
                   ) : null}
 
@@ -603,7 +861,7 @@ export function SuppliersView({ businessId }: { businessId: string }) {
                     <div>
                       <label className="mb-1 block text-xs font-medium text-muted">Total stock amount</label>
                       <div className="flex h-10 items-center justify-between rounded-lg border border-line bg-surface-2 px-3 text-sm">
-                        <span className="text-muted">{effectiveQty} Ã— {formatCurrency(Number(unitCost) || 0)}</span>
+                        <span className="text-muted">{effectiveQty} × {formatCurrency(Number(unitCost) || 0)}</span>
                         <span className="font-semibold tabular-nums text-foreground">{formatCurrency(total)}</span>
                       </div>
                     </div>
@@ -630,15 +888,39 @@ export function SuppliersView({ businessId }: { businessId: string }) {
                       <div className="text-sm">
                         {total > 0 ? (
                           Number(paidNow || 0) >= total ? (
-                            <p className="font-medium text-emerald-700 dark:text-emerald-300">Full amount paid â€” this entry will be marked Paid.</p>
+                            <p className="font-medium text-emerald-700 dark:text-emerald-300">Full amount paid — this entry will be marked Paid.</p>
                           ) : (
-                            <p className="text-muted">Paid <b className="text-foreground">{formatCurrency(Number(paidNow) || 0)}</b> Â· Remaining <b className="font-semibold text-amber-700 dark:text-amber-300">{formatCurrency(Math.max(0, total - (Number(paidNow) || 0)))}</b></p>
+                            <p className="text-muted">Paid <b className="text-foreground">{formatCurrency(Number(paidNow) || 0)}</b> · Remaining <b className="font-semibold text-amber-700 dark:text-amber-300">{formatCurrency(Math.max(0, total - (Number(paidNow) || 0)))}</b></p>
                           )
                         ) : (
                           <p className="text-muted">Enter quantity and purchase price to calculate the total.</p>
                         )}
                       </div>
                     </div>
+                  </div>
+
+                  <div className="rounded-lg border border-line bg-surface-2 p-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <p className="text-xs font-semibold text-foreground">Bill / receipt photos (optional)</p>
+                        <p className="text-xs text-muted">Attach up to 5 photos of the supplier bill or receipt as proof.</p>
+                      </div>
+                      <label className="focus-ring inline-flex cursor-pointer items-center gap-2 rounded-lg border border-line bg-surface px-3 py-2 text-xs font-medium text-foreground hover:border-accent/40">
+                        {billImageBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ImagePlus className="h-3.5 w-3.5 text-muted" />}
+                        Add photo
+                        <input type="file" accept="image/*" multiple className="sr-only" disabled={billImageBusy || billImages.length >= 5} onChange={(e) => void onBillImages(e)} />
+                      </label>
+                    </div>
+                    {billImages.length ? (
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {billImages.map((src, index) => (
+                          <div key={`${index}-${src.slice(-16)}`} className="relative">
+                            <img src={src} alt={`Bill photo ${index + 1}`} className="h-16 w-16 rounded-lg border border-line object-cover" />
+                            <button type="button" onClick={() => setBillImages((cur) => cur.filter((_, i) => i !== index))} className="absolute -right-1.5 -top-1.5 rounded-full border border-line bg-surface p-0.5 text-muted hover:text-rose-600" aria-label="Remove photo"><X className="h-3 w-3" /></button>
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
                   </div>
 
                   <div className="flex justify-end">
@@ -663,68 +945,79 @@ export function SuppliersView({ businessId }: { businessId: string }) {
                     {payBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} Save payment
                   </button>
                 </div>
-              </div>
-
-              <div className="overflow-hidden rounded-xl border border-line bg-surface">
-                <div className="flex items-center justify-between border-b border-line px-4 py-3">
-                  <h3 className="text-sm font-semibold text-foreground">Purchase bills</h3>
-                  <span className="text-xs text-muted">{purchaseBills.length} bills</span>
+                <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-line bg-surface-2 px-3 py-2">
+                  <p className="text-xs text-muted">Payment proof photos (optional, max 5)</p>
+                  <label className="focus-ring inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-line bg-surface px-2.5 py-1.5 text-xs font-medium text-foreground hover:border-accent/40">
+                    {payImageBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ImagePlus className="h-3.5 w-3.5 text-muted" />}
+                    Add photo
+                    <input type="file" accept="image/*" multiple className="sr-only" disabled={payImageBusy || payImages.length >= 5} onChange={(e) => void onPayImages(e)} />
+                  </label>
+                  {payImages.length ? (
+                    <div className="flex flex-wrap gap-2">
+                      {payImages.map((src, index) => (
+                        <div key={`${index}-${src.slice(-16)}`} className="relative">
+                          <img src={src} alt={`Payment photo ${index + 1}`} className="h-12 w-12 rounded-md border border-line object-cover" />
+                          <button type="button" onClick={() => setPayImages((cur) => cur.filter((_, i) => i !== index))} className="absolute -right-1.5 -top-1.5 rounded-full border border-line bg-surface p-0.5 text-muted hover:text-rose-600" aria-label="Remove photo"><X className="h-3 w-3" /></button>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
                 </div>
-                {purchaseBills.length === 0 ? (
-                  <p className="px-4 py-8 text-center text-sm text-muted">No purchases yet. Add the first purchase bill above.</p>
-                ) : (
-                  <ul className="divide-y divide-line">
-                    {purchaseBills.map((entry) => (
-                      <li key={entry.id} className="flex flex-wrap items-center gap-3 px-4 py-3">
-                        <span className={cn("flex h-8 w-8 shrink-0 items-center justify-center rounded-full", entry.isPaid ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300" : "bg-amber-500/10 text-amber-700 dark:text-amber-300")}>
-                          {entry.isPaid ? <CheckCircle2 className="h-4 w-4" /> : <ArrowUpRight className="h-4 w-4" />}
-                        </span>
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate text-sm font-medium text-foreground">{entry.productName || "Purchase"}{entry.note ? <span className="font-normal text-muted"> Â· {entry.note}</span> : null}</p>
-                          <p className="text-[11px] text-muted">
-                            {entry.quantity ?? 0} x {formatCurrency(entry.unitCost ?? 0)} Â· {new Date(entry.createdAt).toLocaleString("en-US")}
-                          </p>
-                        </div>
-                        <div className="text-right">
-                          <p className="text-sm font-semibold tabular-nums text-foreground">{formatCurrency(entry.amountPkr)}</p>
-                          {entry.isPaid ? (
-                            <span className="inline-flex rounded-full bg-emerald-500/10 px-2 py-0.5 text-[11px] font-medium text-emerald-700 dark:text-emerald-300">Paid</span>
-                          ) : (
-                            <p className="text-[11px] text-muted">Paid {formatCurrency(entry.paidAmount)} Â· Remaining <b className="font-semibold text-amber-700 dark:text-amber-300">{formatCurrency(entry.remainingPkr)}</b></p>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-1">
-                          <button type="button" onClick={() => printSupplierSlip({ kind: "PURCHASE", supplierName: selected.name, supplierPhone: selected.phone ?? null, productName: entry.productName || "Purchase", quantity: Number(entry.quantity || 0), unitCost: Number(entry.unitCost || 0), total: Number(entry.amountPkr || 0), paidNow: Number(entry.paidAmount || 0), remaining: Number(entry.remainingPkr || 0), note: entry.note ?? null, createdAt: entry.createdAt })} className="focus-ring rounded-md p-1.5 text-muted hover:text-foreground" aria-label="Print purchase bill"><Printer className="h-3.5 w-3.5" /></button>
-                          <button type="button" onClick={() => { const url = buildSupplierSlipWhatsAppUrl({ kind: "PURCHASE", supplierName: selected.name, supplierPhone: selected.phone ?? null, productName: entry.productName || "Purchase", quantity: Number(entry.quantity || 0), unitCost: Number(entry.unitCost || 0), total: Number(entry.amountPkr || 0), paidNow: Number(entry.paidAmount || 0), remaining: Number(entry.remainingPkr || 0), note: entry.note ?? null, createdAt: entry.createdAt }); if (!url) { window.alert("Supplier WhatsApp/phone number is missing."); return; } window.open(url, "_blank", "noopener,noreferrer"); }} className="focus-ring rounded-md p-1.5 text-emerald-700 hover:bg-emerald-500/10 dark:text-emerald-300" aria-label="Send purchase bill on WhatsApp"><MessageCircle className="h-3.5 w-3.5" /></button>
-                          <button type="button" onClick={() => setDelEntry(entry)} className="focus-ring rounded-md p-1.5 text-muted hover:text-rose-600" aria-label="Delete purchase bill"><Trash2 className="h-3.5 w-3.5" /></button>
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
-                )}
               </div>
 
               <div className="overflow-hidden rounded-xl border border-line bg-surface">
-                <div className="border-b border-line px-4 py-3"><h3 className="text-sm font-semibold text-foreground">Payment history</h3></div>
-                {paymentEntries.length === 0 ? (
-                  <p className="px-4 py-6 text-center text-sm text-muted">No extra payments yet.</p>
+                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line px-4 py-3">
+                  <div>
+                    <h3 className="text-sm font-semibold text-foreground">Ledger — purchases &amp; payments</h3>
+                    <p className="text-xs text-muted">Everything in one place: what was bought, what was paid, and how much is still pending.</p>
+                  </div>
+                  <span className="text-xs text-muted">{ledgerRows.length} entries</span>
+                </div>
+                {ledgerRows.length === 0 ? (
+                  <p className="px-4 py-8 text-center text-sm text-muted">No purchases or payments yet. Add the first purchase bill above.</p>
                 ) : (
                   <ul className="divide-y divide-line">
-                    {paymentEntries.map((entry) => (
-                      <li key={entry.id} className="flex items-center gap-3 px-4 py-2.5">
-                        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"><ArrowDownLeft className="h-4 w-4" /></span>
-                        <div className="min-w-0 flex-1">
-                          <p className="text-sm font-medium text-foreground">Payment{entry.note ? <span className="font-normal text-muted"> Â· {entry.note}</span> : null}</p>
-                          <p className="text-[11px] text-muted">{new Date(entry.createdAt).toLocaleString("en-US")}</p>
-                        </div>
-                        <span className="text-sm font-semibold tabular-nums text-emerald-700 dark:text-emerald-300">{formatCurrency(entry.amountPkr)}</span>
-                        <div className="flex items-center gap-1">
-                          <button type="button" onClick={() => printSupplierSlip({ kind: "PAYMENT", supplierName: selected.name, supplierPhone: selected.phone ?? null, amount: Number(entry.amountPkr || 0), note: entry.note ?? null, createdAt: entry.createdAt, context: "Payment recorded" })} className="focus-ring rounded-md p-1.5 text-muted hover:text-foreground" aria-label="Print payment"><Printer className="h-3.5 w-3.5" /></button>
-                          <button type="button" onClick={() => { const url = buildSupplierSlipWhatsAppUrl({ kind: "PAYMENT", supplierName: selected.name, supplierPhone: selected.phone ?? null, amount: Number(entry.amountPkr || 0), note: entry.note ?? null, createdAt: entry.createdAt, context: "Payment recorded" }); if (!url) { window.alert("Supplier WhatsApp/phone number is missing."); return; } window.open(url, "_blank", "noopener,noreferrer"); }} className="focus-ring rounded-md p-1.5 text-emerald-700 hover:bg-emerald-500/10 dark:text-emerald-300" aria-label="Send payment on WhatsApp"><MessageCircle className="h-3.5 w-3.5" /></button>
-                          <button type="button" onClick={() => setDelEntry(entry)} className="focus-ring rounded-md p-1.5 text-muted hover:text-rose-600" aria-label="Delete payment"><Trash2 className="h-3.5 w-3.5" /></button>
-                        </div>
-                      </li>
-                    ))}
+                    {ledgerRows.map((entry) => {
+                      const isPurchase = entry.type === "PURCHASE";
+                      return (
+                        <li key={entry.id} className="flex flex-wrap items-center gap-3 px-4 py-3">
+                          <span className={cn("flex h-8 w-8 shrink-0 items-center justify-center rounded-full", isPurchase ? (entry.isPaid ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300" : "bg-amber-500/10 text-amber-700 dark:text-amber-300") : "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300")}>
+                            {isPurchase ? (entry.isPaid ? <CheckCircle2 className="h-4 w-4" /> : <ArrowUpRight className="h-4 w-4" />) : <ArrowDownLeft className="h-4 w-4" />}
+                          </span>
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-sm font-medium text-foreground">
+                              {isPurchase ? (entry.productName || "Purchase") : "Payment"}
+                              {entry.note ? <span className="font-normal text-muted"> · {entry.note}</span> : null}
+                            </p>
+                            <p className="text-[11px] text-muted">
+                              {isPurchase ? `${entry.quantity ?? 0} × ${formatCurrency(entry.unitCost ?? 0)} · ` : ""}
+                              {new Date(entry.createdAt).toLocaleString("en-US")}
+                              {entry.imageCount ? (
+                                <span className="ml-1.5 inline-flex items-center gap-0.5 rounded bg-surface-2 px-1 py-0.5 align-middle text-[10px] text-muted"><ImagePlus className="h-3 w-3" /> {entry.imageCount}</span>
+                              ) : null}
+                            </p>
+                          </div>
+                          <div className="min-w-[150px] text-right">
+                            <p className={cn("text-sm font-semibold tabular-nums", isPurchase ? "text-foreground" : "text-emerald-700 dark:text-emerald-300")}>{formatCurrency(entry.amountPkr)}</p>
+                            {isPurchase ? (
+                              <p className="text-[11px] text-muted">
+                                Paid {formatCurrency(entry.paidAmount)}
+                                {entry.remainingPkr > 0 ? <> · Bill pending <b className="font-semibold text-amber-700 dark:text-amber-300">{formatCurrency(entry.remainingPkr)}</b></> : null}
+                              </p>
+                            ) : (
+                              <p className="text-[11px] text-muted">Payment to supplier</p>
+                            )}
+                            <p className="text-[11px] text-muted">Pending after: <b className="font-semibold text-foreground">{formatCurrency(entry.pendingAfter)}</b></p>
+                          </div>
+                          <div className="flex flex-wrap items-center justify-end gap-1">
+                            <button type="button" onClick={() => void openEntryDetails(entry, entry.pendingAfter)} className="focus-ring inline-flex items-center gap-1 rounded-md border border-line bg-surface-2 px-2 py-1.5 text-[11px] font-medium text-foreground hover:border-accent/40" aria-label="View entry details"><Eye className="h-3.5 w-3.5" /> Details</button>
+                            <button type="button" onClick={() => printSupplierSlip(slipFromEntry(entry))} className="focus-ring rounded-md p-1.5 text-muted hover:text-foreground" aria-label="Print slip"><Printer className="h-3.5 w-3.5" /></button>
+                            <button type="button" onClick={() => void sendSlipWhatsApp(slipFromEntry(entry))} className="focus-ring rounded-md p-1.5 text-emerald-700 hover:bg-emerald-500/10 dark:text-emerald-300" aria-label="Send slip PDF on WhatsApp"><MessageCircle className="h-3.5 w-3.5" /></button>
+                            <button type="button" onClick={() => setDelEntry(entry)} className="focus-ring rounded-md p-1.5 text-muted hover:text-rose-600" aria-label="Delete entry"><Trash2 className="h-3.5 w-3.5" /></button>
+                          </div>
+                        </li>
+                      );
+                    })}
                   </ul>
                 )}
               </div>
@@ -753,7 +1046,7 @@ export function SuppliersView({ businessId }: { businessId: string }) {
                                 {p.imageUrl ? <img src={p.imageUrl} alt="" className="h-8 w-8 rounded-md border border-line object-cover" /> : null}
                                 <div className="min-w-0">
                                   <p className="truncate font-medium text-foreground">{p.name}</p>
-                                  <p className="text-[11px] text-muted">Cost {formatCurrency(p.costPrice)} Â· Sells at {formatCurrency(p.sellingPrice)}</p>
+                                  <p className="text-[11px] text-muted">Cost {formatCurrency(p.costPrice)} · Sells at {formatCurrency(p.sellingPrice)}</p>
                                 </div>
                               </div>
                             </td>
@@ -889,8 +1182,84 @@ export function SuppliersView({ businessId }: { businessId: string }) {
         loading={delBusy}
       />
 
+      {/* Entry details + bill photos */}
+      {detailEntry && selected ? (
+        <div className="fixed inset-0 z-[140] flex items-end justify-center sm:items-center" role="dialog" aria-modal="true" aria-label="Purchase / payment details">
+          <div className="absolute inset-0 bg-overlay/65 backdrop-blur-sm" onMouseDown={() => setDetailEntry(null)} aria-hidden />
+          <div className="relative z-10 max-h-[92vh] w-full max-w-2xl overflow-hidden rounded-t-2xl border border-line bg-surface shadow-panel sm:rounded-2xl">
+            <div className="flex items-start justify-between gap-2 border-b border-line px-5 py-4">
+              <div>
+                <h2 className="text-base font-semibold text-foreground">{detailEntry.type === "PURCHASE" ? "Purchase details" : "Payment details"}</h2>
+                <p className="text-xs text-muted">{selected.name} · {new Date(detailEntry.createdAt).toLocaleString()}</p>
+              </div>
+              <button type="button" onClick={() => setDetailEntry(null)} className="rounded-md p-1 text-muted hover:text-foreground" aria-label="Close"><X className="h-4 w-4" /></button>
+            </div>
+            <div className="overflow-y-auto p-5" style={{ maxHeight: "calc(92vh - 72px)" }}>
+              <div className="rounded-lg border border-line bg-surface-2 p-4 text-sm">
+                <div className="flex justify-between gap-3"><span className="text-muted">Supplier</span><span className="font-medium text-foreground">{selected.name}</span></div>
+                {detailEntry.type === "PURCHASE" ? (
+                  <>
+                    <div className="flex justify-between gap-3"><span className="text-muted">Product</span><span className="font-medium text-foreground">{detailEntry.productName || "Purchase"}</span></div>
+                    <div className="flex justify-between gap-3"><span className="text-muted">Quantity</span><span className="tabular-nums text-foreground">{detailEntry.quantity ?? 0}</span></div>
+                    <div className="flex justify-between gap-3"><span className="text-muted">Purchase price / unit</span><span className="tabular-nums text-foreground">{formatCurrency(detailEntry.unitCost ?? 0)}</span></div>
+                    <div className="flex justify-between gap-3 border-t border-line pt-2"><span className="text-muted">Total bill</span><span className="font-semibold tabular-nums text-foreground">{formatCurrency(detailEntry.amountPkr)}</span></div>
+                    <div className="flex justify-between gap-3"><span className="text-muted">Paid at bill time</span><span className="tabular-nums text-emerald-700 dark:text-emerald-300">{formatCurrency(detailEntry.paidAmount)}</span></div>
+                    <div className="flex justify-between gap-3"><span className="text-muted">Pending on this bill</span><span className="font-semibold tabular-nums text-amber-700 dark:text-amber-300">{formatCurrency(detailEntry.remainingPkr)}</span></div>
+                  </>
+                ) : (
+                  <div className="flex justify-between gap-3 border-t border-line pt-2"><span className="text-muted">Amount paid</span><span className="font-semibold tabular-nums text-emerald-700 dark:text-emerald-300">{formatCurrency(detailEntry.amountPkr)}</span></div>
+                )}
+                <div className="flex justify-between gap-3"><span className="text-muted">Pending after this entry</span><span className="font-semibold tabular-nums text-foreground">{formatCurrency(detailPendingAfter)}</span></div>
+                {detailEntry.note ? <div className="flex justify-between gap-3"><span className="text-muted">Note</span><span className="text-right text-foreground">{detailEntry.note}</span></div> : null}
+              </div>
+
+              <div className="mt-4 rounded-lg border border-line p-4">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <h3 className="flex items-center gap-2 text-sm font-semibold text-foreground"><ImagePlus className="h-4 w-4 text-accent" /> Bill / receipt photos</h3>
+                    <p className="text-xs text-muted">Attach up to 5 photos (supplier bill, your receipt, or payment proof).</p>
+                  </div>
+                  <label className={cn("focus-ring inline-flex cursor-pointer items-center gap-2 rounded-lg border border-line bg-surface-2 px-3 py-2 text-xs font-medium text-foreground hover:border-accent/40", (detailImagesSaving || detailImages.length >= 5) ? "pointer-events-none opacity-60" : "")}>
+                    {detailImagesSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ImagePlus className="h-3.5 w-3.5 text-muted" />}
+                    Add photo
+                    <input type="file" accept="image/*" multiple className="sr-only" disabled={detailImagesSaving || detailImages.length >= 5} onChange={(e) => void onDetailImages(e)} />
+                  </label>
+                </div>
+                {detailImagesLoading ? (
+                  <p className="mt-3 flex items-center gap-2 text-xs text-muted"><Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading photos…</p>
+                ) : detailImages.length ? (
+                  <div className="mt-3 grid grid-cols-3 gap-2 sm:grid-cols-5">
+                    {detailImages.map((src, index) => (
+                      <div key={`${index}-${src.slice(-16)}`} className="relative">
+                        <a href={src} target="_blank" rel="noopener noreferrer">
+                          <img src={src} alt={`Bill photo ${index + 1}`} className="h-20 w-full rounded-lg border border-line object-cover" />
+                        </a>
+                        <button type="button" onClick={() => removeDetailImage(index)} className="absolute -right-1.5 -top-1.5 rounded-full border border-line bg-surface p-0.5 text-muted hover:text-rose-600" aria-label="Remove photo"><X className="h-3 w-3" /></button>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="mt-3 text-xs text-muted">No photos attached yet.</p>
+                )}
+                {detailImagesDirty ? (
+                  <button type="button" onClick={() => void saveDetailImages()} disabled={detailImagesSaving} className="focus-ring mt-3 inline-flex items-center gap-2 rounded-lg bg-accent px-3.5 py-2 text-xs font-semibold text-accent-fg disabled:opacity-60">
+                    {detailImagesSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />} Save photos
+                  </button>
+                ) : null}
+              </div>
+
+              <div className="mt-4 flex flex-wrap justify-end gap-2">
+                <button type="button" onClick={() => printSupplierSlip(slipFromEntry(detailEntry))} className="focus-ring inline-flex items-center gap-2 rounded-lg border border-line bg-surface px-3.5 py-2 text-sm font-medium text-foreground hover:border-accent/40"><Printer className="h-4 w-4" /> Print</button>
+                <button type="button" onClick={() => void sendSlipWhatsApp(slipFromEntry(detailEntry))} className="focus-ring inline-flex items-center gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3.5 py-2 text-sm font-semibold text-emerald-700 hover:bg-emerald-500/15 dark:text-emerald-300"><MessageCircle className="h-4 w-4" /> WhatsApp PDF</button>
+                <button type="button" onClick={() => setDetailEntry(null)} className="focus-ring rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-accent-fg">Done</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {supplierSlip ? (
-        <div className="fixed inset-0 z-[130] flex items-end justify-center sm:items-center" role="dialog" aria-modal="true" aria-label={supplierSlip.kind === "PURCHASE" ? "Stock purchase slip" : "Payment slip"}>
+        <div className="fixed inset-0 z-[140] flex items-end justify-center sm:items-center" role="dialog" aria-modal="true" aria-label={supplierSlip.kind === "PURCHASE" ? "Stock purchase slip" : "Payment slip"}>
           <div className="absolute inset-0 bg-overlay/65 backdrop-blur-sm" onMouseDown={() => setSupplierSlip(null)} aria-hidden />
           <div className="relative z-10 w-full max-w-lg rounded-t-2xl border border-line bg-surface p-5 shadow-panel sm:rounded-2xl">
             <div className="flex items-start justify-between gap-2">
@@ -923,16 +1292,8 @@ export function SuppliersView({ businessId }: { businessId: string }) {
               <button type="button" onClick={() => printSupplierSlip(supplierSlip)} className="focus-ring inline-flex items-center gap-2 rounded-lg border border-line bg-surface px-3.5 py-2 text-sm font-medium text-foreground hover:border-accent/40">
                 <Printer className="h-4 w-4" /> Print
               </button>
-              <button
-                type="button"
-                onClick={() => {
-                  const url = buildSupplierSlipWhatsAppUrl(supplierSlip);
-                  if (!url) { window.alert("Supplier WhatsApp/phone number is missing. Add supplier phone number first."); return; }
-                  window.open(url, "_blank", "noopener,noreferrer");
-                }}
-                className="focus-ring inline-flex items-center gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3.5 py-2 text-sm font-semibold text-emerald-700 hover:bg-emerald-500/15 dark:text-emerald-300"
-              >
-                <MessageCircle className="h-4 w-4" /> Send on WhatsApp
+              <button type="button" onClick={() => void sendSlipWhatsApp(supplierSlip)} className="focus-ring inline-flex items-center gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3.5 py-2 text-sm font-semibold text-emerald-700 hover:bg-emerald-500/15 dark:text-emerald-300">
+                <MessageCircle className="h-4 w-4" /> Send PDF on WhatsApp
               </button>
               <button type="button" onClick={() => setSupplierSlip(null)} className="focus-ring rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-accent-fg">Done</button>
             </div>
@@ -940,86 +1301,10 @@ export function SuppliersView({ businessId }: { businessId: string }) {
           </div>
         </div>
       ) : null}
+
+      <WhatsAppPdfDialog state={waPdf} onClose={() => setWaPdf(null)} onDone={(message) => setNotice(message)} />
     </div>
   );
-}
-
-type SupplierSlipAny =
-  | { kind: "PURCHASE"; supplierName: string; supplierPhone?: string | null; productName: string; quantity: number; unitCost: number; total: number; paidNow: number; remaining: number; note?: string | null; createdAt: string }
-  | { kind: "PAYMENT"; supplierName: string; supplierPhone?: string | null; amount: number; note?: string | null; createdAt: string; context?: string | null };
-
-function buildSupplierSlipWhatsAppUrl(slip: SupplierSlipAny) {
-  const phone = normalizeWaPhone(slip.supplierPhone, "92");
-  if (!phone) return null;
-  const lines: string[] = [];
-  if (slip.kind === "PURCHASE") {
-    lines.push("*7 Communication - Stock Purchase Slip*");
-    lines.push(`Date: ${new Date(slip.createdAt).toLocaleString()}`);
-    lines.push(`Supplier: ${slip.supplierName}`);
-    lines.push(`Product: ${slip.productName}`);
-    lines.push(`Quantity: ${slip.quantity}`);
-    lines.push(`Purchase price / unit: ${formatCurrency(slip.unitCost)}`);
-    lines.push(`Total: ${formatCurrency(slip.total)}`);
-    lines.push(`Paid now: ${formatCurrency(slip.paidNow)}`);
-    lines.push(`Remaining: ${formatCurrency(slip.remaining)}`);
-  } else {
-    lines.push("*7 Communication - Supplier Payment Slip*");
-    lines.push(`Date: ${new Date(slip.createdAt).toLocaleString()}`);
-    lines.push(`Supplier: ${slip.supplierName}`);
-    if (slip.context) lines.push(`Type: ${slip.context}`);
-    lines.push(`Amount paid: ${formatCurrency(slip.amount)}`);
-  }
-  if (slip.note) lines.push(`Note: ${slip.note}`);
-  return `https://api.whatsapp.com/send?phone=${phone}&text=${encodeURIComponent(lines.join("\n"))}`;
-}
-
-function printSupplierSlip(slip: SupplierSlipAny) {
-  const title = slip.kind === "PURCHASE" ? "Stock Purchase Slip" : "Supplier Payment Slip";
-  const body = slip.kind === "PURCHASE"
-    ? `
-      <div class="row"><span>Supplier</span><span>${escapeSlip(slip.supplierName)}</span></div>
-      <div class="row"><span>Product</span><span>${escapeSlip(slip.productName)}</span></div>
-      <div class="row"><span>Quantity</span><span>${slip.quantity}</span></div>
-      <div class="row"><span>Price / unit</span><span>${formatCurrency(slip.unitCost)}</span></div>
-      <div class="row bold"><span>Total</span><span>${formatCurrency(slip.total)}</span></div>
-      <div class="row"><span>Paid now</span><span>${formatCurrency(slip.paidNow)}</span></div>
-      <div class="row bold"><span>Remaining</span><span>${formatCurrency(slip.remaining)}</span></div>`
-    : `
-      <div class="row"><span>Supplier</span><span>${escapeSlip(slip.supplierName)}</span></div>
-      ${slip.context ? `<div class="row"><span>Type</span><span>${escapeSlip(slip.context)}</span></div>` : ""}
-      <div class="row bold"><span>Amount paid</span><span>${formatCurrency(slip.amount)}</span></div>`;
-  const html = `<!doctype html><html><head><meta charset="utf-8"/><title>${escapeSlip(title)}</title>
-  <style>
-    @page { size: 80mm auto; margin: 3mm; }
-    body{font-family:Arial,sans-serif;margin:0;padding:0;color:#111;background:#fff}
-    .receipt{width:72mm;margin:0 auto;font-size:11px;line-height:1.35}
-    h1{margin:0 0 2px;font-size:14px;text-align:center}
-    .muted{color:#444;font-size:10px;text-align:center}
-    .box{margin-top:8px}
-    .row{display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px dashed #ccc;gap:8px}
-    .row:last-child{border-bottom:0}
-    .bold{font-weight:700}
-  </style></head><body>
-  <div class="receipt">
-    <h1>7 Communication</h1>
-    <div class="muted">${escapeSlip(title)}</div>
-    <div class="muted">${new Date(slip.createdAt).toLocaleString()}</div>
-    <div class="box">
-      ${body}
-      ${slip.note ? `<div class="row"><span>Note</span><span>${escapeSlip(slip.note)}</span></div>` : ""}
-    </div>
-  </div></body></html>`;
-  const w = window.open("", "_blank");
-  if (!w) { window.alert("Please allow popups to print."); return; }
-  w.document.open();
-  w.document.write(html);
-  w.document.close();
-  w.focus();
-  setTimeout(() => { try { w.print(); } catch {} }, 350);
-}
-
-function escapeSlip(s: string) {
-  return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c] as string));
 }
 
 function SupplierAvatar({ supplier, size }: { supplier: { name: string; imageUrl?: string | null }; size: number }) {
@@ -1038,8 +1323,7 @@ function SupplierAvatar({ supplier, size }: { supplier: { name: string; imageUrl
       style={{ width: size, height: size }}
       aria-hidden
     >
-      {initials || "S"}
+      {initials || "?"}
     </span>
   );
 }
-

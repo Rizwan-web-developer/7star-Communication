@@ -615,7 +615,22 @@ model SupplierEntry {
   note        String?
   createdAt   DateTime          @default(now())
 
+  images      SupplierEntryImage[]
+
   @@index([tenantId])
   @@index([supplierId])
   @@index([createdAt])
+}
+
+// Bill / receipt photos attached to a supplier purchase or payment (max 5 per entry).
+model SupplierEntryImage {
+  id        String        @id @default(cuid())
+  tenantId  String
+  entryId   String
+  entry     SupplierEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)
+  dataUrl   String
+  createdAt DateTime      @default(now())
+
+  @@index([entryId])
+  @@index([tenantId])
 }

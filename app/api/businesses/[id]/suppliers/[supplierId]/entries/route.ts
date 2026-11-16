@@ -7,6 +7,23 @@ import { assertTenantWritable } from "@/lib/trial-guard";
 import { money, serializeEntry } from "@/lib/suppliers";
 
 const TYPE_SET = new Set(["PURCHASE", "PAYMENT"]);
+const MAX_IMAGES = 5;
+const MAX_IMAGE_CHARS = 1_300_000;
+const IMAGE_PREFIX = /^data:image\/(png|jpe?g|webp|gif);base64,/;
+
+/** Validate bill/receipt photos picked from the gallery (max 5 compact data URLs). */
+function parseImages(input: unknown): string[] {
+  if (!Array.isArray(input)) return [];
+  const out: string[] = [];
+  for (const raw of input) {
+    const value = String(raw ?? "");
+    if (!IMAGE_PREFIX.test(value)) continue;
+    if (value.length > MAX_IMAGE_CHARS) continue;
+    out.push(value);
+    if (out.length >= MAX_IMAGES) break;
+  }
+  return out;
+}
 
 async function guard(id: string) {
   const access = await requireTenantAccess(id);
@@ -37,16 +54,25 @@ export async function POST(req: Request, { params }: { params: { id: string; sup
       if (!Number.isFinite(amount) || amount <= 0) {
         return NextResponse.json({ message: "A valid payment amount is required." }, { status: 400 });
       }
-      const entry = await prisma.supplierEntry.create({
-        data: {
-          tenantId: params.id,
-          supplierId: params.supplierId,
-          type: "PAYMENT",
-          amountPkr: money(amount),
-          note,
-        },
+      const images = parseImages(body?.images);
+      const entry = await prisma.$transaction(async (tx: any) => {
+        const created = await tx.supplierEntry.create({
+          data: {
+            tenantId: params.id,
+            supplierId: params.supplierId,
+            type: "PAYMENT",
+            amountPkr: money(amount),
+            note,
+          },
+        });
+        if (images.length) {
+          await tx.supplierEntryImage.createMany({
+            data: images.map((dataUrl) => ({ tenantId: params.id, entryId: created.id, dataUrl })),
+          });
+        }
+        return created;
       });
-      return NextResponse.json({ entry: serializeEntry(entry) }, { status: 201 });
+      return NextResponse.json({ entry: serializeEntry({ ...entry, _count: { images: images.length } }) }, { status: 201 });
     }
 
     // ---- PURCHASE / STOCK ENTRY ----
@@ -185,10 +211,20 @@ export async function POST(req: Request, { params }: { params: { id: string; sup
         },
       });
 
-      return { entry, product };
+      const images = parseImages(body?.images);
+      if (images.length) {
+        await tx.supplierEntryImage.createMany({
+          data: images.map((dataUrl) => ({ tenantId: params.id, entryId: entry.id, dataUrl })),
+        });
+      }
+
+      return { entry, product, imageCount: images.length };
     });
 
-    return NextResponse.json({ entry: serializeEntry(result.entry), product: result.product }, { status: 201 });
+    return NextResponse.json(
+      { entry: serializeEntry({ ...result.entry, _count: { images: result.imageCount } }), product: result.product },
+      { status: 201 },
+    );
   } catch (error: any) {
     const code = error instanceof Error ? error.message : "";
     if (code === "PRODUCT_NOT_FOUND") return NextResponse.json({ message: "Selected product was not found." }, { status: 400 });
@@ -199,6 +235,59 @@ export async function POST(req: Request, { params }: { params: { id: string; sup
     if (typeof code === "string" && code.startsWith("SERIALS_CONFLICT:")) return NextResponse.json({ message: `These Serial/IMEI already exist: ${code.slice(16)}` }, { status: 409 });
     console.error("Create supplier entry error:", error);
     return NextResponse.json({ message: "Failed to add supplier entry." }, { status: 500 });
+  }
+}
+
+export async function GET(req: Request, { params }: { params: { id: string; supplierId: string } }) {
+  const access = await requireTenantAccess(params.id);
+  if (!access) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!(await tenantHasFeature(params.id, "SUPPLIER_LEDGER"))) {
+    return NextResponse.json({ message: "Supplier ledger is not enabled for this business." }, { status: 403 });
+  }
+
+  const entryId = new URL(req.url).searchParams.get("entryId") ?? "";
+  if (!entryId) return NextResponse.json({ message: "Entry id is required." }, { status: 400 });
+
+  const entry: any = await prisma.supplierEntry.findFirst({
+    where: { id: entryId, supplierId: params.supplierId, tenantId: params.id },
+    include: { images: { orderBy: { createdAt: "asc" }, select: { dataUrl: true } } },
+  });
+  if (!entry) return NextResponse.json({ message: "Entry not found." }, { status: 404 });
+
+  const images = (entry.images ?? []).map((image: any) => image.dataUrl);
+  const { images: _images, ...rest } = entry;
+  return NextResponse.json({ entry: serializeEntry({ ...rest, _count: { images: images.length } }), images });
+}
+
+export async function PATCH(req: Request, { params }: { params: { id: string; supplierId: string } }) {
+  const blocked = await guard(params.id);
+  if (blocked) return blocked;
+
+  try {
+    const body = await req.json().catch(() => ({}));
+    const entryId = String(body?.entryId ?? "");
+    if (!entryId) return NextResponse.json({ message: "Entry id is required." }, { status: 400 });
+
+    const entry: any = await prisma.supplierEntry.findFirst({
+      where: { id: entryId, supplierId: params.supplierId, tenantId: params.id },
+      select: { id: true },
+    });
+    if (!entry) return NextResponse.json({ message: "Entry not found." }, { status: 404 });
+
+    const images = parseImages(body?.images);
+    await prisma.$transaction(async (tx: any) => {
+      await tx.supplierEntryImage.deleteMany({ where: { entryId, tenantId: params.id } });
+      if (images.length) {
+        await tx.supplierEntryImage.createMany({
+          data: images.map((dataUrl) => ({ tenantId: params.id, entryId, dataUrl })),
+        });
+      }
+    });
+
+    return NextResponse.json({ ok: true, images, imageCount: images.length });
+  } catch (error) {
+    console.error("Update supplier entry images error:", error);
+    return NextResponse.json({ message: "Failed to save the bill photos." }, { status: 500 });
   }
 }
 

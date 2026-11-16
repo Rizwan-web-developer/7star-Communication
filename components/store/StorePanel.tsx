@@ -25,9 +25,13 @@ import {
 } from "lucide-react";
 import { useTheme } from "@/components/providers/ThemeProvider";
 import { AddProductModal, type CreatedProduct } from "@/components/store/AddProductModal";
+import { WhatsAppPdfDialog, type WhatsAppPdfState } from "@/components/store/WhatsAppPdfDialog";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { cn, currencyForCountry, formatCurrency } from "@/lib/utils";
-import { buildWhatsAppReceiptUrl } from "@/lib/whatsapp";
+import { normalizeWaPhone } from "@/lib/whatsapp";
+import { printHtmlOnSamePage } from "@/lib/print";
+import { buildReceiptPdf } from "@/lib/receipt-pdf";
+import { sharePdfFile } from "@/lib/whatsapp-pdf";
 import { MessageCircle } from "lucide-react";
 
 type Business = { id: string; uid?: string | null; businessName: string; slug?: string | null; status: string; industryType?: string; country?: string | null; location?: string | null; ownerName?: string | null; phone?: string | null; logoDataUrl?: string | null; accountType?: string; trialEndsAt?: string | null; subscriptionPaidUntil?: string | null; whatsappCountryCode?: string | null; whatsappNumber?: string | null };
@@ -211,6 +215,7 @@ export function StorePanel({ businessId, section }: { businessId: string; sectio
   const [invSupplier, setInvSupplier] = useState("");
   const [checkingOut, setCheckingOut] = useState(false);
   const [lastInvoice, setLastInvoice] = useState<Invoice | null>(null);
+  const [waPdf, setWaPdf] = useState<WhatsAppPdfState | null>(null);
   // POS invoice printing uses popup receipt window (see triggerPrint).
   // Serial/IMEI selection when a SERIAL_OR_IMEI product is added to cart
   const [serialPick, setSerialPick] = useState<Product | null>(null);
@@ -450,28 +455,38 @@ export function StorePanel({ businessId, section }: { businessId: string; sectio
   };
 
   const printViaIframe = (html: string) => {
-    try {
-      const iframe = document.createElement("iframe");
-      iframe.style.position = "fixed";
-      iframe.style.right = "0";
-      iframe.style.bottom = "0";
-      iframe.style.width = "0";
-      iframe.style.height = "0";
-      iframe.style.border = "0";
-      iframe.setAttribute("aria-hidden", "true");
-      document.body.appendChild(iframe);
-      const doc = iframe.contentWindow?.document;
-      if (!doc) { document.body.removeChild(iframe); flash("err", "Could not open print view."); return; }
-      doc.open();
-      doc.write(html);
-      doc.close();
-      setTimeout(() => {
-        try { iframe.contentWindow?.focus(); iframe.contentWindow?.print(); } catch { flash("err", "Could not open print view."); }
-        setTimeout(() => { try { document.body.removeChild(iframe); } catch {} }, 1000);
-      }, 150);
-    } catch {
-      flash("err", "Could not open print view.");
-    }
+    printHtmlOnSamePage(html);
+  };
+
+  const buildInvoicePdf = (inv: Invoice) => {
+    const discount = Number(inv.discountPkr || 0);
+    const paid = Number(inv.downPaymentPkr || 0);
+    const due = Number(inv.duePkr || 0);
+    const itemBlocks = (inv.items || []).flatMap((it) => {
+      const name = it.productName || it.product?.name || "Item";
+      const brand = it.brandName || it.product?.brand || "";
+      const serial = it.serialOrImei ? ` [${it.serialOrImei}]` : "";
+      const label = `${brand ? `${brand} ` : ""}${name}${serial} x${it.quantity}`;
+      return [{ kind: "row" as const, label, value: formatCurrency(it.lineTotal) }];
+    });
+    return buildReceiptPdf({
+      heading: business?.businessName || "7 Communication",
+      subheading: `Invoice ${inv.invoiceNumber} · ${new Date(inv.createdAt).toLocaleString("en-PK")}`,
+      blocks: [
+        ...(business?.location ? [{ kind: "sub" as const, text: business.location }] : []),
+        ...(inv.customerName ? [{ kind: "row" as const, label: "Customer", value: inv.customerName }] : []),
+        ...(inv.customerPhone ? [{ kind: "row" as const, label: "Phone", value: inv.customerPhone }] : []),
+        { kind: "divider" },
+        ...(itemBlocks.length ? itemBlocks : [{ kind: "text" as const, text: "No items" }]),
+        { kind: "divider" },
+        ...(discount > 0 ? [{ kind: "row" as const, label: "Discount", value: `- ${formatCurrency(discount)}` }] : []),
+        { kind: "row", label: "Total", value: formatCurrency(inv.totalAmount), bold: true },
+        { kind: "row", label: "Paid", value: formatCurrency(paid) },
+        { kind: "row", label: "Due", value: due > 0 ? formatCurrency(due) : "Paid in full", bold: true },
+        { kind: "row", label: "Payment", value: inv.paymentMethod || "CASH" },
+      ],
+      footer: "Thank you for your purchase.",
+    });
   };
 
   const printReceiptWindow = (inv: Invoice, _preOpened?: Window | null) => {
@@ -489,20 +504,20 @@ export function StorePanel({ businessId, section }: { businessId: string; sectio
   }
   function serialOrEmpty(s?: string | null) { return s || ""; }
 
-  const sendReceiptWhatsApp = (inv: Invoice, fallbackPhone?: string | null) => {
-    const phone = inv.customerPhone || fallbackPhone || "";
-    const url = buildWhatsAppReceiptUrl({
-      customerPhone: phone,
-      defaultCountryCode: business?.whatsappCountryCode || "92",
-      shopName: business?.businessName || "7 Communication",
-      invoice: inv as any,
-      currency: "PKR",
-    });
-    if (!url) {
+  const sendReceiptWhatsApp = async (inv: Invoice, fallbackPhone?: string | null) => {
+    const rawPhone = inv.customerPhone || fallbackPhone || "";
+    const phone = normalizeWaPhone(rawPhone, business?.whatsappCountryCode || "92");
+    if (!phone) {
       flash("err", "Customer WhatsApp number is missing. Add customer phone in POS before sending.");
       return;
     }
-    window.open(url, "_blank", "noopener,noreferrer");
+    const blob = buildInvoicePdf(inv);
+    const fileName = `${inv.invoiceNumber || "receipt"}.pdf`;
+    const title = `Receipt ${inv.invoiceNumber}`;
+    const result = await sharePdfFile(blob, fileName, title);
+    if (result === "shared") { flash("ok", "Receipt PDF shared. Send it in WhatsApp."); return; }
+    if (result === "cancelled") return;
+    setWaPdf({ phone, blob, fileName, title });
   };
 
   const applyLocalSaleToState = (items: CartLine[]) => {
@@ -952,7 +967,7 @@ export function StorePanel({ businessId, section }: { businessId: string; sectio
                       <button type="button" onClick={() => triggerPrint(lastInvoice)} className="focus-ring inline-flex items-center gap-1.5 rounded-lg border border-line bg-surface px-2.5 py-1.5 text-xs font-semibold text-foreground hover:border-accent/40">
                         <Printer className="h-3.5 w-3.5" /> Print
                       </button>
-                      <button type="button" onClick={() => sendReceiptWhatsApp(lastInvoice, customerPhone)} className="focus-ring inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1.5 text-xs font-semibold text-emerald-700 hover:bg-emerald-500/15 dark:text-emerald-300">
+                      <button type="button" onClick={() => void sendReceiptWhatsApp(lastInvoice, customerPhone)} className="focus-ring inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1.5 text-xs font-semibold text-emerald-700 hover:bg-emerald-500/15 dark:text-emerald-300">
                         <MessageCircle className="h-3.5 w-3.5" /> WhatsApp
                       </button>
                     </div>
@@ -1165,7 +1180,7 @@ export function StorePanel({ businessId, section }: { businessId: string; sectio
                       <td className="px-4 py-3">
                         <div className="flex justify-end gap-1.5">
                           <button type="button" onClick={() => triggerPrint(inv)} className="focus-ring inline-flex items-center gap-1 rounded-md border border-line bg-surface-2 px-2 py-1 text-[11px] font-medium text-foreground hover:border-accent/40" title="Print receipt"><Printer className="h-3.5 w-3.5" /> Print</button>
-                          <button type="button" onClick={() => sendReceiptWhatsApp(inv)} className="focus-ring inline-flex items-center gap-1 rounded-md border border-emerald-500/30 bg-emerald-500/10 px-2 py-1 text-[11px] font-medium text-emerald-700 hover:bg-emerald-500/15 dark:text-emerald-300" title="Send on WhatsApp"><MessageCircle className="h-3.5 w-3.5" /> WhatsApp</button>
+                          <button type="button" onClick={() => void sendReceiptWhatsApp(inv)} className="focus-ring inline-flex items-center gap-1 rounded-md border border-emerald-500/30 bg-emerald-500/10 px-2 py-1 text-[11px] font-medium text-emerald-700 hover:bg-emerald-500/15 dark:text-emerald-300" title="Send on WhatsApp"><MessageCircle className="h-3.5 w-3.5" /> WhatsApp</button>
                         </div>
                       </td>
                     </tr>
@@ -1398,6 +1413,7 @@ export function StorePanel({ businessId, section }: { businessId: string; sectio
         </div>
       ) : null}
 
+      <WhatsAppPdfDialog state={waPdf} onClose={() => setWaPdf(null)} onDone={(message) => flash("ok", message)} />
     </div>
   );
 }

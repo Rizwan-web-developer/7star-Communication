@@ -13,7 +13,14 @@ export function normalizeDatabaseUrl(raw: string | undefined): string | undefine
   ) {
     value = value.slice(1, -1).trim();
   }
-  return value || undefined;
+  if (!value) return undefined;
+  // Serverless functions open a new connection per instance. Keeping one pooled
+  // connection per instance prevents Supabase "max clients reached" errors,
+  // which otherwise show up as random "failed to load" messages in the panel.
+  if (/^postgres(ql)?:\/\//i.test(value) && !/[?&]connection_limit=/i.test(value)) {
+    value += `${value.includes("?") ? "&" : "?"}connection_limit=1&connect_timeout=15`;
+  }
+  return value;
 }
 
 const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient };

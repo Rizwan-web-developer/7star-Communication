@@ -3,6 +3,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Eye, Loader2, MessageCircle, Pencil, Phone, Plus, Printer, Search, Trash2, User, Wallet, X } from "lucide-react";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { WhatsAppPdfDialog, type WhatsAppPdfState } from "@/components/store/WhatsAppPdfDialog";
+import { buildReceiptPdf } from "@/lib/receipt-pdf";
+import { printHtmlOnSamePage } from "@/lib/print";
+import { sharePdfFile } from "@/lib/whatsapp-pdf";
 import { formatCurrency } from "@/lib/utils";
 import { normalizeWaPhone } from "@/lib/whatsapp";
 
@@ -77,88 +81,31 @@ function printInvoice(customer: CustomerDetail, inv: CustomerInvoice) {
   printHtmlOnSamePage(html);
 }
 
-function printHtmlOnSamePage(html: string) {
-  try {
-    const iframe = document.createElement("iframe");
-    iframe.style.position = "fixed";
-    iframe.style.right = "0";
-    iframe.style.bottom = "0";
-    iframe.style.width = "0";
-    iframe.style.height = "0";
-    iframe.style.border = "0";
-    iframe.setAttribute("aria-hidden", "true");
-    document.body.appendChild(iframe);
-    const doc = iframe.contentWindow?.document;
-    if (!doc) { document.body.removeChild(iframe); window.alert("Could not open print view."); return; }
-    doc.open();
-    doc.write(html);
-    doc.close();
-    setTimeout(() => {
-      try { iframe.contentWindow?.focus(); iframe.contentWindow?.print(); } catch {}
-      setTimeout(() => { try { document.body.removeChild(iframe); } catch {} }, 1000);
-    }, 150);
-  } catch {
-    window.alert("Could not open print view.");
-  }
-}
-
 function escapeHtml(s: string) {
   return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c] as string));
 }
 
-function buildSimpleReceiptPdf(customer: CustomerDetail, inv: CustomerInvoice): Blob {
-  const lines: string[] = [];
-  lines.push("7 Communication");
-  lines.push(`Invoice: ${inv.invoiceNumber}`);
-  lines.push(`Date: ${new Date(inv.createdAt).toLocaleString()}`);
-  lines.push(`Customer: ${customer.name}`);
-  if (customer.phone) lines.push(`Phone: ${customer.phone}`);
-  lines.push("----------------------------------------");
-  for (const it of inv.items || []) {
-    const name = it.productName || "Item";
-    lines.push(`${name} x${it.quantity}  ${formatCurrency(it.lineTotal)}`);
-    if (it.serialOrImei) lines.push(`  S/N: ${it.serialOrImei}`);
-  }
-  lines.push("----------------------------------------");
-  lines.push(`Total: ${formatCurrency(inv.totalAmount)}`);
-  lines.push(`Paid: ${formatCurrency(inv.downPaymentPkr)}`);
-  lines.push(`Due: ${formatCurrency(inv.duePkr)}`);
-  if (inv.paymentMethod) lines.push(`Payment: ${inv.paymentMethod}`);
-  lines.push("");
-  lines.push("Thank you for your purchase.");
-
-  const esc = (t: string) => t.replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)");
-  let y = 800;
-  const contentLines: string[] = ["BT", "/F1 11 Tf", "50 800 Td"];
-  for (let i = 0; i < lines.length; i++) {
-    const line = esc(lines[i]);
-    if (i === 0) contentLines.push(`(${line}) Tj`);
-    else contentLines.push(`0 -16 Td (${line}) Tj`);
-    y -= 16;
-  }
-  contentLines.push("ET");
-  const content = contentLines.join("\n");
-
-  const objects: string[] = [];
-  const addObj = (s: string) => { objects.push(s); return objects.length; };
-  const obj1 = addObj("<< /Type /Catalog /Pages 2 0 R >>");
-  const obj2 = addObj("<< /Type /Pages /Kids [3 0 R] /Count 1 >>");
-  const obj3 = addObj("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>");
-  const obj4 = addObj("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>");
-  const obj5 = addObj(`<< /Length ${content.length} >>\nstream\n${content}\nendstream`);
-
-  let pdf = "%PDF-1.4\n";
-  const offsets: number[] = [0];
-  for (let i = 0; i < objects.length; i++) {
-    offsets.push(pdf.length);
-    pdf += `${i + 1} 0 obj\n${objects[i]}\nendobj\n`;
-  }
-  const xrefPos = pdf.length;
-  pdf += `xref\n0 ${objects.length + 1}\n`;
-  pdf += "0000000000 65535 f \n";
-  for (let i = 1; i < offsets.length; i++) pdf += `${String(offsets[i]).padStart(10, "0")} 00000 n \n`;
-  pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefPos}\n%%EOF`;
-  return new Blob([pdf], { type: "application/pdf" });
+function buildInvoicePdf(customer: CustomerDetail, inv: CustomerInvoice): Blob {
+  const items = (inv.items || []).flatMap((it) => {
+    const label = `${it.productName || "Item"} x${it.quantity}${it.serialOrImei ? ` (${it.serialOrImei})` : ""}`;
+    return [{ kind: "row" as const, label, value: formatCurrency(it.lineTotal) }];
+  });
+  return buildReceiptPdf({
+    heading: "7 Communication",
+    subheading: `Invoice ${inv.invoiceNumber} · ${new Date(inv.createdAt).toLocaleString("en-PK")}`,
+    blocks: [
+      { kind: "row", label: "Customer", value: customer.name },
+      ...(customer.phone ? [{ kind: "row" as const, label: "Phone", value: customer.phone }] : []),
+      { kind: "divider" },
+      ...(items.length ? items : [{ kind: "text" as const, text: "No items" }]),
+      { kind: "divider" },
+      { kind: "row", label: "Total", value: formatCurrency(inv.totalAmount), bold: true },
+      { kind: "row", label: "Paid", value: formatCurrency(inv.downPaymentPkr) },
+      { kind: "row", label: "Due", value: formatCurrency(inv.duePkr), bold: true },
+      ...(inv.paymentMethod ? [{ kind: "row" as const, label: "Payment", value: String(inv.paymentMethod) }] : []),
+    ],
+    footer: "Thank you for your purchase.",
+  });
 }
 
 export function CustomersView({ businessId }: { businessId: string }) {
@@ -183,7 +130,7 @@ export function CustomersView({ businessId }: { businessId: string }) {
   const [detailLoading, setDetailLoading] = useState(false);
   const [payAmount, setPayAmount] = useState("");
   const [payBusy, setPayBusy] = useState(false);
-  const [waChoice, setWaChoice] = useState<{ phone: string; message: string; pdfBlob: Blob; fileName: string } | null>(null);
+  const [waPdf, setWaPdf] = useState<WhatsAppPdfState | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -202,20 +149,35 @@ export function CustomersView({ businessId }: { businessId: string }) {
 
   useEffect(() => { void load(); }, [load]);
 
+  const fetchCustomerDetail = useCallback(async (customerId: string): Promise<CustomerDetail> => {
+    let lastError: unknown = null;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const res = await fetch(`/api/businesses/${businessId}/customers/${customerId}`, { cache: "no-store" });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.message || "Failed to load customer details.");
+        return data.customer as CustomerDetail;
+      } catch (e) {
+        lastError = e;
+        // A cold serverless/database connection can fail once; retry before showing an error.
+        if (attempt < 2) await new Promise((r) => setTimeout(r, 400 * (attempt + 1)));
+      }
+    }
+    throw lastError instanceof Error ? lastError : new Error("Failed to load customer details.");
+  }, [businessId]);
+
   const loadDetail = useCallback(async (customerId: string) => {
     setDetailLoading(true);
+    setError("");
     try {
-      const res = await fetch(`/api/businesses/${businessId}/customers/${customerId}`, { cache: "no-store" });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.message || "Failed to load customer details.");
-      setDetail(data.customer as CustomerDetail);
+      setDetail(await fetchCustomerDetail(customerId));
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load customer details.");
       setDetail(null);
     } finally {
       setDetailLoading(false);
     }
-  }, [businessId]);
+  }, [fetchCustomerDetail]);
 
   useEffect(() => {
     if (detailId) void loadDetail(detailId);
@@ -277,18 +239,10 @@ export function CustomersView({ businessId }: { businessId: string }) {
     }
   };
 
-  const fetchCustomerDetail = async (customerId: string): Promise<CustomerDetail | null> => {
-    const res = await fetch(`/api/businesses/${businessId}/customers/${customerId}`, { cache: "no-store" });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.message || "Failed to load customer details.");
-    return data.customer as CustomerDetail;
-  };
-
   const printCustomerReceipt = async (customerId: string) => {
     setError(""); setNotice("");
     try {
       const c = await fetchCustomerDetail(customerId);
-      if (!c) throw new Error("Customer not found.");
       const inv = c.invoices[0];
       if (!inv) { setNotice("No invoice/receipt found for this customer."); return; }
       printInvoice(c, inv);
@@ -297,40 +251,25 @@ export function CustomersView({ businessId }: { businessId: string }) {
     }
   };
 
+  const sendInvoicePdfWhatsApp = async (customer: CustomerDetail, inv: CustomerInvoice) => {
+    const phone = normalizeWaPhone(customer.phone, "92");
+    if (!phone) { setError("Customer phone number is missing."); return; }
+    const blob = buildInvoicePdf(customer, inv);
+    const fileName = `${inv.invoiceNumber || "receipt"}.pdf`;
+    const title = `Receipt ${inv.invoiceNumber}`;
+    const result = await sharePdfFile(blob, fileName, title);
+    if (result === "shared") { setNotice("Receipt PDF shared. Send it in WhatsApp."); return; }
+    if (result === "cancelled") return;
+    setWaPdf({ phone, blob, fileName, title });
+  };
+
   const sendCustomerReceiptWhatsApp = async (customerId: string) => {
     setError(""); setNotice("");
     try {
       const c = await fetchCustomerDetail(customerId);
-      if (!c) throw new Error("Customer not found.");
       const inv = c.invoices[0];
       if (!inv) { setNotice("No invoice/receipt found for this customer."); return; }
-      const phone = normalizeWaPhone(c.phone, "92");
-      if (!phone) { setError("Customer phone number is missing."); return; }
-
-      const pdfBlob = buildSimpleReceiptPdf(c, inv);
-      const fileName = `${inv.invoiceNumber || "receipt"}.pdf`;
-      const file = new File([pdfBlob], fileName, { type: "application/pdf" });
-
-      // Try sharing PDF file (mobile browsers can share to WhatsApp as document)
-      const navAny = navigator as any;
-      if (navAny.share && (!navAny.canShare || navAny.canShare({ files: [file] }))) {
-        try {
-          await navAny.share({
-            files: [file],
-            title: `Receipt ${inv.invoiceNumber}`,
-            text: `Receipt ${inv.invoiceNumber} - 7 Communication`,
-          });
-          setNotice("Receipt PDF ready to share.");
-          return;
-        } catch (err: any) {
-          // user cancelled share or share failed; fall through to fallback
-          if (err?.name === "AbortError") return;
-        }
-      }
-
-      // Fallback: let user choose WhatsApp Web or App (PDF downloaded for manual attach)
-      const message = `Receipt ${inv.invoiceNumber} - 7 Communication`;
-      setWaChoice({ phone, message, pdfBlob, fileName });
+      await sendInvoicePdfWhatsApp(c, inv);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to prepare WhatsApp receipt.");
     }
@@ -474,6 +413,7 @@ export function CustomersView({ businessId }: { businessId: string }) {
                           </div>
                           <div className="flex items-center gap-2">
                             <span className="text-xs text-muted">Total {formatCurrency(inv.totalAmount)} · Paid {formatCurrency(inv.downPaymentPkr)} · <b className={inv.duePkr > 0 ? "text-amber-700 dark:text-amber-300" : "text-emerald-700 dark:text-emerald-300"}>Due {formatCurrency(inv.duePkr)}</b></span>
+                            <button type="button" onClick={() => void sendInvoicePdfWhatsApp(detail, inv)} className="focus-ring inline-flex items-center gap-1 rounded-md border border-emerald-500/30 bg-emerald-500/10 px-2 py-1 text-xs font-medium text-emerald-700 hover:bg-emerald-500/15 dark:text-emerald-300"><MessageCircle className="h-3.5 w-3.5" /> WhatsApp</button>
                             <button type="button" onClick={() => printInvoice(detail, inv)} className="focus-ring inline-flex items-center gap-1 rounded-md border border-line bg-surface px-2 py-1 text-xs font-medium text-foreground hover:border-accent/40"><Printer className="h-3.5 w-3.5" /> Print</button>
                           </div>
                         </div>
@@ -541,52 +481,7 @@ export function CustomersView({ businessId }: { businessId: string }) {
         loading={busy}
       />
 
-      {waChoice ? (
-        <div className="fixed inset-0 z-[140] flex items-end justify-center sm:items-center" role="dialog" aria-modal="true" aria-label="Send receipt on WhatsApp">
-          <div className="absolute inset-0 bg-overlay/65 backdrop-blur-sm" onMouseDown={() => setWaChoice(null)} aria-hidden />
-          <div className="relative z-10 w-full max-w-md rounded-t-2xl border border-line bg-surface p-5 shadow-panel sm:rounded-2xl">
-            <div className="flex items-start justify-between gap-2">
-              <div>
-                <h2 className="text-base font-semibold text-foreground">Send receipt on WhatsApp</h2>
-                <p className="mt-1 text-sm text-muted">PDF will be downloaded. Choose WhatsApp Web or App, then attach the downloaded PDF and send (WhatsApp link cannot attach PDF automatically).</p>
-              </div>
-              <button type="button" onClick={() => setWaChoice(null)} className="rounded-md p-1 text-muted hover:text-foreground" aria-label="Close"><X className="h-4 w-4" /></button>
-            </div>
-            <div className="mt-4 grid gap-2 sm:grid-cols-2">
-              <button
-                type="button"
-                onClick={() => {
-                  const { phone, message, pdfBlob, fileName } = waChoice;
-                  const url = URL.createObjectURL(pdfBlob);
-                  const a = document.createElement("a"); a.href = url; a.download = fileName; document.body.appendChild(a); a.click(); a.remove();
-                  setTimeout(() => URL.revokeObjectURL(url), 1000);
-                  window.open(`https://web.whatsapp.com/send?phone=${phone}&text=${encodeURIComponent(message)}`, "_blank", "noopener,noreferrer");
-                  setWaChoice(null);
-                  setNotice("PDF downloaded. WhatsApp Web opened — attach the PDF and send.");
-                }}
-                className="focus-ring inline-flex items-center justify-center gap-2 rounded-lg border border-line bg-surface-2 px-4 py-2.5 text-sm font-semibold text-foreground hover:border-accent/40"
-              >
-                <MessageCircle className="h-4 w-4" /> WhatsApp Web
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  const { phone, message, pdfBlob, fileName } = waChoice;
-                  const url = URL.createObjectURL(pdfBlob);
-                  const a = document.createElement("a"); a.href = url; a.download = fileName; document.body.appendChild(a); a.click(); a.remove();
-                  setTimeout(() => URL.revokeObjectURL(url), 1000);
-                  window.open(`https://api.whatsapp.com/send?phone=${phone}&text=${encodeURIComponent(message)}`, "_blank", "noopener,noreferrer");
-                  setWaChoice(null);
-                  setNotice("PDF downloaded. WhatsApp opened — attach the PDF and send.");
-                }}
-                className="focus-ring inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700"
-              >
-                <Phone className="h-4 w-4" /> WhatsApp App
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
+      <WhatsAppPdfDialog state={waPdf} onClose={() => setWaPdf(null)} onDone={(message) => setNotice(message)} />
     </div>
   );
 }

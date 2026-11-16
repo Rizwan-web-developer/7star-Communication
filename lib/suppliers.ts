@@ -21,6 +21,7 @@ export function serializeEntry(entry: any) {
     // For a purchase bill: how much is still owed on that bill.
     remainingPkr: type === "PURCHASE" ? money(Math.max(0, amount - paid)) : 0,
     isPaid: type === "PURCHASE" ? paid >= amount && amount > 0 : true,
+    imageCount: Number(entry?._count?.images ?? (Array.isArray(entry?.images) ? entry.images.length : 0)),
   };
 }
 
@@ -96,7 +97,11 @@ export async function loadSuppliers(tenantId: string) {
     where: { tenantId },
     orderBy: { name: "asc" },
     include: {
-      entries: { orderBy: { createdAt: "desc" }, take: 300 },
+      entries: {
+        orderBy: { createdAt: "desc" },
+        take: 300,
+        include: { _count: { select: { images: true } } },
+      },
       products: { where: { deletedAt: null }, orderBy: { name: "asc" } },
     },
   });
