@@ -396,6 +396,8 @@ model Product {
   @@index([supplierId])
   @@index([barcode])
   @@index([name, category])
+  // Inventory / POS list: tenant + not deleted, newest first.
+  @@index([tenantId, deletedAt, updatedAt])
 }
 
 // Per-business feature access granted by the platform admin.
@@ -511,6 +513,8 @@ model Invoice {
   @@index([customerId])
   @@index([syncStatus])
   @@index([createdAt])
+  // Sales list / day totals: tenant + newest first.
+  @@index([tenantId, createdAt])
 }
 
 model InvoiceItem {
@@ -576,6 +580,8 @@ model Customer {
   @@index([tenantId])
   @@index([name])
   @@index([phone])
+  // Customer list is shown newest first.
+  @@index([tenantId, createdAt])
 }
 
 // SUPPLIER_LEDGER feature: suppliers + purchase/payment entries.
@@ -620,6 +626,8 @@ model SupplierEntry {
   @@index([tenantId])
   @@index([supplierId])
   @@index([createdAt])
+  // Ledger is loaded per supplier, newest first.
+  @@index([tenantId, supplierId, createdAt])
 }
 
 // Bill / receipt photos attached to a supplier purchase or payment (max 5 per entry).

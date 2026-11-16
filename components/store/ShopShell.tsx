@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   Boxes,
   Layers,
@@ -26,6 +26,7 @@ import { cn, currencyForCountry, setDisplayCurrency } from "@/lib/utils";
 type Shop = {
   id: string; uid?: string | null; businessName: string; industryType?: string; status?: string; accountType?: string;
   email?: string | null; phone?: string | null; country?: string | null; location?: string | null; logoDataUrl?: string | null;
+  hasLogo?: boolean; logoVersion?: number | null;
   subscriptionPaidUntil?: string | null;
 };
 
@@ -65,51 +66,50 @@ export function ShopShell({ businessId, children }: { businessId: string; childr
   const [featureKeys, setFeatureKeys] = useState<string[]>([]);
   const [me, setMe] = useState<{ role?: string; name?: string } | null>(null);
 
-  useEffect(() => {
-    void (async () => {
-      try {
-        const res = await fetch("/api/auth/me", { cache: "no-store" });
-        const data = await res.json().catch(() => ({}));
-        if (res.ok) setMe(data.user || null);
-      } catch { /* ignore */ }
-    })();
-  }, []);
-
-  const isPosOnly = me?.role === "CASHIER";
-
-  const refreshShop = async () => {
+  const refreshShop = useCallback(async () => {
     try {
       const res = await fetch(`/api/businesses/${businessId}/profile`, { cache: "no-store" });
       const data = await res.json().catch(() => ({}));
       if (res.ok && data.business) {
+        const b = data.business as Shop & { logoDataUrl?: string | null };
+        const { logoDataUrl, ...rest } = b;
+        setShop({ ...rest, hasLogo: Boolean(logoDataUrl), logoVersion: Date.now() });
+        setDisplayCurrency(currencyForCountry(b.country ?? b.location));
+      }
+    } catch { /* ignore */ }
+  }, [businessId]);
+
+  // Single request for session + shop profile + features (instead of three).
+  const loadBootstrap = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/businesses/${businessId}/bootstrap`, { cache: "no-store" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) return;
+      if (data.user) setMe(data.user);
+      if (data.business) {
         const b = data.business as Shop;
         setShop(b);
         setDisplayCurrency(currencyForCountry(b.country ?? b.location));
       }
+      if (Array.isArray(data.features)) setFeatureKeys(data.features.map((k: unknown) => String(k)));
     } catch { /* ignore */ }
-  };
-  useEffect(() => { void refreshShop(); }, [businessId]);
+  }, [businessId]);
+
+  useEffect(() => { void loadBootstrap(); }, [loadBootstrap]);
   useEffect(() => {
     const h = () => { void refreshShop(); };
     window.addEventListener("omnipos-shop-profile", h);
     return () => window.removeEventListener("omnipos-shop-profile", h);
-  }, [businessId]);
+  }, [refreshShop]);
 
   useEffect(() => { setMobileOpen(false); }, [pathname]);
 
   const base = `/store/${businessId}`;
   const shopName = shop?.businessName || "7 Communication";
   const panelLabel = INDUSTRY_LABEL[String(shop?.industryType || "")] || "Mobile Accessories Shop";
-
-  useEffect(() => {
-    void (async () => {
-      try {
-        const res = await fetch(`/api/businesses/${businessId}/features`, { cache: "no-store" });
-        const data = await res.json().catch(() => ({}));
-        if (res.ok && Array.isArray(data.features)) setFeatureKeys(data.features.map((k: unknown) => String(k)));
-      } catch { /* ignore */ }
-    })();
-  }, [businessId]);
+  const isPosOnly = me?.role === "CASHIER";
+  // Cached image URL (instead of a 40 KB base64 string on every load).
+  const logoUrl = shop?.hasLogo ? `/api/businesses/${businessId}/logo?v=${shop.logoVersion ?? 0}` : null;
 
   const nav = useMemo(
     () => NAV
@@ -141,8 +141,8 @@ export function ShopShell({ businessId, children }: { businessId: string; childr
         <div className={cn("flex items-center", collapsed && !onNavigate ? "justify-center" : "justify-between gap-2")}>
           {!(collapsed && !onNavigate) ? (
             <div className="flex min-w-0 items-center gap-2.5">
-              {shop?.logoDataUrl ? (
-                <img src={shop.logoDataUrl} alt="" className="h-12 w-12 shrink-0 object-contain" />
+              {logoUrl ? (
+                <img src={logoUrl} alt="" className="h-12 w-12 shrink-0 object-contain" />
               ) : (
                 <span className="flex h-12 w-12 shrink-0 items-center justify-center text-sm font-semibold text-accent">{initials(shopName).toUpperCase()}</span>
               )}
@@ -152,8 +152,8 @@ export function ShopShell({ businessId, children }: { businessId: string; childr
               </div>
             </div>
           ) : (
-            shop?.logoDataUrl ? (
-              <img src={shop.logoDataUrl} alt={shopName} className="h-12 w-12 object-contain" title={shopName} />
+            logoUrl ? (
+              <img src={logoUrl} alt={shopName} className="h-12 w-12 object-contain" title={shopName} />
             ) : (
               <span className="flex h-12 w-12 items-center justify-center text-xs font-semibold text-accent" title={shopName}>{initials(shopName).toUpperCase()}</span>
             )
