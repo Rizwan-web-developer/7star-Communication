@@ -1,9 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Eye, Loader2, Pencil, Phone, Plus, Printer, Search, Trash2, User, Wallet, X } from "lucide-react";
+import { Eye, Loader2, MessageCircle, Pencil, Phone, Plus, Printer, Search, Trash2, User, Wallet, X } from "lucide-react";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { formatCurrency } from "@/lib/utils";
+import { normalizeWaPhone } from "@/lib/whatsapp";
 
 type Customer = {
   id: string;
@@ -84,6 +85,61 @@ function printInvoice(customer: CustomerDetail, inv: CustomerInvoice) {
 
 function escapeHtml(s: string) {
   return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c] as string));
+}
+
+function buildSimpleReceiptPdf(customer: CustomerDetail, inv: CustomerInvoice): Blob {
+  const lines: string[] = [];
+  lines.push("7 Communication");
+  lines.push(`Invoice: ${inv.invoiceNumber}`);
+  lines.push(`Date: ${new Date(inv.createdAt).toLocaleString()}`);
+  lines.push(`Customer: ${customer.name}`);
+  if (customer.phone) lines.push(`Phone: ${customer.phone}`);
+  lines.push("----------------------------------------");
+  for (const it of inv.items || []) {
+    const name = it.productName || "Item";
+    lines.push(`${name} x${it.quantity}  ${formatCurrency(it.lineTotal)}`);
+    if (it.serialOrImei) lines.push(`  S/N: ${it.serialOrImei}`);
+  }
+  lines.push("----------------------------------------");
+  lines.push(`Total: ${formatCurrency(inv.totalAmount)}`);
+  lines.push(`Paid: ${formatCurrency(inv.downPaymentPkr)}`);
+  lines.push(`Due: ${formatCurrency(inv.duePkr)}`);
+  if (inv.paymentMethod) lines.push(`Payment: ${inv.paymentMethod}`);
+  lines.push("");
+  lines.push("Thank you for your purchase.");
+
+  const esc = (t: string) => t.replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)");
+  let y = 800;
+  const contentLines: string[] = ["BT", "/F1 11 Tf", "50 800 Td"];
+  for (let i = 0; i < lines.length; i++) {
+    const line = esc(lines[i]);
+    if (i === 0) contentLines.push(`(${line}) Tj`);
+    else contentLines.push(`0 -16 Td (${line}) Tj`);
+    y -= 16;
+  }
+  contentLines.push("ET");
+  const content = contentLines.join("\n");
+
+  const objects: string[] = [];
+  const addObj = (s: string) => { objects.push(s); return objects.length; };
+  const obj1 = addObj("<< /Type /Catalog /Pages 2 0 R >>");
+  const obj2 = addObj("<< /Type /Pages /Kids [3 0 R] /Count 1 >>");
+  const obj3 = addObj("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>");
+  const obj4 = addObj("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>");
+  const obj5 = addObj(`<< /Length ${content.length} >>\nstream\n${content}\nendstream`);
+
+  let pdf = "%PDF-1.4\n";
+  const offsets: number[] = [0];
+  for (let i = 0; i < objects.length; i++) {
+    offsets.push(pdf.length);
+    pdf += `${i + 1} 0 obj\n${objects[i]}\nendobj\n`;
+  }
+  const xrefPos = pdf.length;
+  pdf += `xref\n0 ${objects.length + 1}\n`;
+  pdf += "0000000000 65535 f \n";
+  for (let i = 1; i < offsets.length; i++) pdf += `${String(offsets[i]).padStart(10, "0")} 00000 n \n`;
+  pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefPos}\n%%EOF`;
+  return new Blob([pdf], { type: "application/pdf" });
 }
 
 export function CustomersView({ businessId }: { businessId: string }) {
@@ -201,6 +257,73 @@ export function CustomersView({ businessId }: { businessId: string }) {
     }
   };
 
+  const fetchCustomerDetail = async (customerId: string): Promise<CustomerDetail | null> => {
+    const res = await fetch(`/api/businesses/${businessId}/customers/${customerId}`, { cache: "no-store" });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.message || "Failed to load customer details.");
+    return data.customer as CustomerDetail;
+  };
+
+  const printCustomerReceipt = async (customerId: string) => {
+    setError(""); setNotice("");
+    try {
+      const c = await fetchCustomerDetail(customerId);
+      if (!c) throw new Error("Customer not found.");
+      const inv = c.invoices[0];
+      if (!inv) { setNotice("No invoice/receipt found for this customer."); return; }
+      printInvoice(c, inv);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to print receipt.");
+    }
+  };
+
+  const sendCustomerReceiptWhatsApp = async (customerId: string) => {
+    setError(""); setNotice("");
+    try {
+      const c = await fetchCustomerDetail(customerId);
+      if (!c) throw new Error("Customer not found.");
+      const inv = c.invoices[0];
+      if (!inv) { setNotice("No invoice/receipt found for this customer."); return; }
+      const phone = normalizeWaPhone(c.phone, "92");
+      if (!phone) { setError("Customer phone number is missing."); return; }
+
+      const pdfBlob = buildSimpleReceiptPdf(c, inv);
+      const fileName = `${inv.invoiceNumber || "receipt"}.pdf`;
+      const file = new File([pdfBlob], fileName, { type: "application/pdf" });
+
+      // Try sharing PDF file (mobile browsers can share to WhatsApp as document)
+      const navAny = navigator as any;
+      if (navAny.share && (!navAny.canShare || navAny.canShare({ files: [file] }))) {
+        try {
+          await navAny.share({
+            files: [file],
+            title: `Receipt ${inv.invoiceNumber}`,
+            text: `Receipt ${inv.invoiceNumber} - 7 Communication`,
+          });
+          setNotice("Receipt PDF ready to share.");
+          return;
+        } catch (err: any) {
+          // user cancelled share or share failed; fall through to fallback
+          if (err?.name === "AbortError") return;
+        }
+      }
+
+      // Fallback: download PDF and open WhatsApp chat (wa.me cannot attach PDF automatically)
+      const url = URL.createObjectURL(pdfBlob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = fileName;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      window.open(`https://api.whatsapp.com/send?phone=${phone}&text=${encodeURIComponent(`Receipt ${inv.invoiceNumber} - 7 Communication`)}`, "_blank", "noopener,noreferrer");
+      setNotice("PDF downloaded. WhatsApp opened — attach the downloaded PDF and send (WhatsApp link cannot attach PDF automatically).");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to prepare WhatsApp receipt.");
+    }
+  };
+
   const recordPayment = async () => {
     if (!detail) return;
     const amount = Number(payAmount);
@@ -272,7 +395,9 @@ export function CustomersView({ businessId }: { businessId: string }) {
                     <td className="px-3 py-3 text-right tabular-nums text-foreground">{c.invoiceCount ?? 0}</td>
                     <td className="px-3 py-3 text-right font-semibold tabular-nums text-amber-700 dark:text-amber-300">{formatCurrency(Number(c.duePkr || 0))}</td>
                     <td className="px-4 py-3">
-                      <div className="flex justify-end gap-1.5">
+                      <div className="flex flex-wrap justify-end gap-1.5">
+                        <button type="button" onClick={() => void printCustomerReceipt(c.id)} className="focus-ring inline-flex items-center gap-1 rounded-md border border-line bg-surface-2 px-2 py-1.5 text-xs font-medium text-foreground hover:border-accent/40" aria-label={`Print receipt ${c.name}`}><Printer className="h-3.5 w-3.5" /> Print</button>
+                        <button type="button" onClick={() => void sendCustomerReceiptWhatsApp(c.id)} className="focus-ring inline-flex items-center gap-1 rounded-md border border-emerald-500/30 bg-emerald-500/10 px-2 py-1.5 text-xs font-medium text-emerald-700 hover:bg-emerald-500/15 dark:text-emerald-300" aria-label={`WhatsApp ${c.name}`}><MessageCircle className="h-3.5 w-3.5" /> WhatsApp</button>
                         <button type="button" onClick={() => { setError(""); setNotice(""); setDetailId(c.id); }} className="focus-ring inline-flex items-center gap-1 rounded-md border border-accent-line bg-accent-soft px-2 py-1.5 text-xs font-medium text-accent" aria-label={`Details ${c.name}`}><Eye className="h-3.5 w-3.5" /> Details</button>
                         <button type="button" onClick={() => openEdit(c)} className="focus-ring rounded-md border border-line bg-surface-2 p-1.5 text-muted hover:text-foreground" aria-label={`Edit ${c.name}`}><Pencil className="h-3.5 w-3.5" /></button>
                         <button type="button" onClick={() => setDel(c)} className="focus-ring rounded-md border border-line bg-surface-2 p-1.5 text-muted hover:border-rose-400/40 hover:text-rose-600" aria-label={`Delete ${c.name}`}><Trash2 className="h-3.5 w-3.5" /></button>
