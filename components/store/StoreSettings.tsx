@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, type FormEvent } from "react";
-import { ImagePlus, Loader2, Lock, Mail, Save, Store, Trash2, UserPlus, Users } from "lucide-react";
+import { Database, Download, ImagePlus, Loader2, Lock, Mail, Save, Store, Trash2, UserPlus, Users } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 
@@ -25,6 +25,10 @@ export function StoreSettings({ businessId }: { businessId: string }) {
   const [confPw, setConfPw] = useState("");
   const [pwSaving, setPwSaving] = useState(false);
   const [pwMsg, setPwMsg] = useState<{ tone: "ok" | "err"; text: string } | null>(null);
+
+  // Full data export (manual backup)
+  const [backupBusy, setBackupBusy] = useState(false);
+  const [backupMsg, setBackupMsg] = useState<{ tone: "ok" | "err"; text: string } | null>(null);
 
   // Cashier (POS-only) accounts
   const [role, setRole] = useState("");
@@ -173,6 +177,34 @@ export function StoreSettings({ businessId }: { businessId: string }) {
     finally { setPwSaving(false); }
   };
 
+  const downloadBackup = async () => {
+    setBackupBusy(true);
+    setBackupMsg(null);
+    try {
+      const res = await fetch(`/api/businesses/${businessId}/backup`, { cache: "no-store" });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.message || "Backup could not be created.");
+      }
+      const blob = await res.blob();
+      const disposition = res.headers.get("Content-Disposition") || "";
+      const nameMatch = /filename="([^"]+)"/.exec(disposition);
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = nameMatch?.[1] || `7communication-backup-${new Date().toISOString().slice(0, 10)}.json`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 5000);
+      setBackupMsg({ tone: "ok", text: `Backup downloaded (${Math.max(1, Math.round(blob.size / 1024))} KB). Keep this file somewhere safe.` });
+    } catch (e) {
+      setBackupMsg({ tone: "err", text: e instanceof Error ? e.message : "Backup failed." });
+    } finally {
+      setBackupBusy(false);
+    }
+  };
+
   if (loading) return <div className="flex items-center gap-2 text-sm text-muted"><Loader2 className="h-4 w-4 animate-spin" /> Loading settings…</div>;
 
   return (
@@ -257,6 +289,31 @@ export function StoreSettings({ businessId }: { businessId: string }) {
             </button>
           </div>
         </form>
+      </section>
+
+      <section className="rounded-xl border border-line bg-surface p-5">
+        <h2 className="flex items-center gap-2 text-base font-semibold text-foreground"><Database className="h-4 w-4 text-accent" /> Export / Backup</h2>
+        <p className="mt-0.5 text-sm text-muted">
+          Download all shop data — products, invoices, customers, suppliers, ledger entries and payments — as one JSON file.
+          Supabase free plan has no automatic backups, so download this file regularly and keep it safe (email, Google Drive, or USB).
+        </p>
+        <div className="mt-4 flex flex-wrap items-center gap-3">
+          <button
+            type="button"
+            onClick={() => void downloadBackup()}
+            disabled={backupBusy}
+            className="focus-ring inline-flex items-center gap-2 rounded-lg border border-line bg-surface-2 px-4 py-2 text-sm font-semibold text-foreground hover:border-line-strong disabled:opacity-60"
+          >
+            {backupBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+            {backupBusy ? "Preparing backup…" : "Download full backup"}
+          </button>
+          <span className="text-xs text-muted">Bill photos are included when the file stays within a safe size.</span>
+        </div>
+        {backupMsg ? (
+          <div className={cn("mt-3 rounded-lg border px-3 py-2 text-sm", backupMsg.tone === "ok" ? "border-emerald-500/25 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300" : "border-rose-500/25 bg-rose-500/10 text-rose-700 dark:text-rose-300")}>
+            {backupMsg.text}
+          </div>
+        ) : null}
       </section>
 
       {canManageStaff ? (
